@@ -1,0 +1,17 @@
+name: Deployment
+description: Handles the deployment logic of the model
+inputs:
+- name: data_path
+  type: String
+outputs:
+- name: output_path
+  type: String
+implementation:
+  container:
+    image: gcr.io/<your-project-id>/deploy:latest
+    command: [
+        "python3",
+        "/deploy.py",
+        "--data_path", {inputPath: data_path},
+        "--output_path", {outputPath: output_path}
+    ]
