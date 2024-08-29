@@ -1,17 +1,19 @@
-name: Monitor
-description: Monitors model performance for data drift and prediction drift
+name: Model Monitoring
+description: Sets up monitoring for the deployed model
 inputs:
-- name: data_path
-  type: String
+  - {name: model, type: Model}
+  - {name: deploy_info, type: JsonObject}
 outputs:
-- name: output_path
-  type: String
+  - {name: monitoring_info, type: JsonObject}
 implementation:
   container:
-    image: gcr.io/<your-project-id>/monitor:latest
-    command: [
-        "python3",
-        "/monitor.py",
-        "--data_path", {inputPath: data_path},
-        "--output_path", {outputPath: output_path}
-    ]
+    image: gcr.io/your-project-id/lastfm-music-recommender:latest
+    command:
+      - python
+      - /app/src/monitoring/pipeline_monitoring.py
+      - --model
+      - {inputPath: model}
+      - --deploy_info
+      - {inputValue: deploy_info}
+      - --monitoring_info
+      - {outputPath: monitoring_info}

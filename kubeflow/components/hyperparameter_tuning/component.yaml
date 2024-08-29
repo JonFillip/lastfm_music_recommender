@@ -1,22 +1,19 @@
-name: Model Training
-description: Trains the content-based recommendation model
+name: Hyperparameter Tuning
+description: Performs hyperparameter tuning using Katib
 inputs:
   - {name: train_data, type: Dataset}
   - {name: val_data, type: Dataset}
-  - {name: hp_params, type: JsonObject}
 outputs:
-  - {name: model, type: Model}
+  - {name: best_hyperparameters, type: JsonObject}
 implementation:
   container:
     image: gcr.io/your-project-id/lastfm-music-recommender:latest
     command:
       - python
-      - /app/src/algorithms/content_based.py
+      - /app/src/hyperparameter_tuning/katib_tuning.py
       - --train_data
       - {inputPath: train_data}
       - --val_data
       - {inputPath: val_data}
-      - --hp_params
-      - {inputValue: hp_params}
-      - --model
-      - {outputPath: model}
+      - --best_hyperparameters
+      - {outputPath: best_hyperparameters}

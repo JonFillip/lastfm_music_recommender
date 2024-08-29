@@ -1,20 +1,19 @@
-# Use an official Python runtime as a parent image
-FROM python:3.9.0
+FROM python:3.9-slim
 
-# Set the working directory
+# Set working directory
 WORKDIR /app
 
-# Copy the current directory contents into the container
-COPY . /app
+# Copy requirements file
+COPY requirements.txt .
 
-# Install any needed packages specified in requirements.txt
+# Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Make port 80 available to the world outside this container
-EXPOSE 80
+# Copy the entire project
+COPY . .
 
-# Define environment variable
-ENV NAME myenv
+# Set environment variables
+ENV PYTHONPATH=/app
 
-# Run app.py when the container launches
-CMD ["python", "kubeflow/scripts/run_pipeline.py"]
+# Run tests by default
+CMD ["python", "-m", "unittest", "discover", "tests"]

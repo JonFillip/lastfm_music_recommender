@@ -1,17 +1,16 @@
-name: Deployment
-description: Handles the deployment logic of the model
+name: Model Deployment
+description: Deploys the trained model
 inputs:
-- name: data_path
-  type: String
+  - {name: model, type: Model}
 outputs:
-- name: output_path
-  type: String
+  - {name: model_info, type: JsonObject}
 implementation:
   container:
-    image: gcr.io/<your-project-id>/deploy:latest
-    command: [
-        "python3",
-        "/deploy.py",
-        "--data_path", {inputPath: data_path},
-        "--output_path", {outputPath: output_path}
-    ]
+    image: gcr.io/your-project-id/lastfm-music-recommender:latest
+    command:
+      - python
+      - /app/src/serving/model_serving.py
+      - --model
+      - {inputPath: model}
+      - --model_info
+      - {outputPath: model_info}

@@ -1,17 +1,19 @@
-name: Test
-description: Test functions and integrations
+name: Model Evaluation
+description: Evaluates the trained model
 inputs:
-- name: data_path
-  type: String
+  - {name: model, type: Model}
+  - {name: test_data, type: Dataset}
 outputs:
-- name: output_path
-  type: String
+  - {name: metrics, type: Metrics}
 implementation:
   container:
-    image: gcr.io/<your-project-id>/test:latest
-    command: [
-        "python3",
-        "/test.py",
-        "--data_path", {inputPath: data_path},
-        "--output_path", {outputPath: output_path}
-    ]
+    image: gcr.io/your-project-id/lastfm-music-recommender:latest
+    command:
+      - python
+      - /app/src/evaluation/model_evaluation.py
+      - --model
+      - {inputPath: model}
+      - --test_data
+      - {inputPath: test_data}
+      - --metrics
+      - {outputPath: metrics}

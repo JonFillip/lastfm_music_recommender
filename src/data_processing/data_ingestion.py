@@ -4,33 +4,17 @@ import pandas as pd
 import os
 import urllib3
 from urllib.parse import quote
-import ssl
-import certifi
 import requests
-from requests.adapters import HTTPAdapter
-from requests.packages.urllib3.poolmanager import PoolManager # type: ignore
-import logging
-import os
-import warnings
-
+from src.utils.logging_utils import get_logger
 
 # Disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, filename='data_generation.log', filemode='a',
-                    format='%(asctime)s - %(levelname)s - %(message)s')
+# Get logger
+logger = get_logger('data_ingestion')
 
 def configure_lastfm_api():
-    """Configure Last.fm API using environment variables.
-
-    Inputs --> None
-
-    Fetches API keys from lastFM
-
-    Returns: LASTFM_API_KEY -> str
-            LASTFM_API_SECRET -> str
-    """
+    """Configure Last.fm API using environment variables."""
     load_dotenv()
 
     LASTFM_API_KEY = os.getenv('LASTFM_API_KEY')
@@ -40,7 +24,6 @@ def configure_lastfm_api():
         raise ValueError("API key and secret must be set in the .env file")
 
     return LASTFM_API_KEY, LASTFM_API_SECRET
-
 
 def fetch_track_details(api_key, track_name, artist_name):
     """Fetch genre (tags) and similar tracks for a given track."""
@@ -63,10 +46,10 @@ def fetch_track_details(api_key, track_name, artist_name):
 
         return tags, similar_tracks
     except requests.exceptions.RequestException as e:
-        logging.error(f"HTTP error while fetching details for track '{track_name}' by '{artist_name}': {e}")
+        logger.error(f"HTTP error while fetching details for track '{track_name}' by '{artist_name}': {e}")
         return [], []
     except ValueError as e:
-        logging.error(f"Decoding error while fetching details for track '{track_name}' by '{artist_name}': {e}")
+        logger.error(f"Decoding error while fetching details for track '{track_name}' by '{artist_name}': {e}")
         return [], []
 
 def fetch_lastfm_data(api_key, limit=200):
@@ -98,31 +81,30 @@ def fetch_lastfm_data(api_key, limit=200):
                 'tags': ', '.join(tags),
                 'similar_tracks': ', '.join(similar_tracks)
             })
-            logging.info(f"Fetched details for track '{name}' by '{artist}'")
+            logger.info(f"Fetched details for track '{name}' by '{artist}'")
 
         df = pd.DataFrame(track_data)
         return df
 
     except Exception as e:
-        logging.error(f"An error occurred: {e}")
+        logger.error(f"An error occurred while fetching Last.fm data: {e}")
         return pd.DataFrame()
 
-if __name__ == '__main__':
+def main(output_path):
     try:
         api_key, _ = configure_lastfm_api()
         df = fetch_lastfm_data(api_key, limit=5000)  # Adjust the limit as needed
-        if df is not None:
-            print(df.head())  # Print the first few rows of the DataFrame to verify
-
-            # Ensure the directory exists
-            output_dir = os.path.join(os.getcwd(), 'spotify_music_recommendation/data/raw')
-            os.makedirs(output_dir, exist_ok=True)
-
-            # Save DataFrame to the specified path
-            output_path = os.path.join(output_dir, 'top_tracks.csv')
+        if not df.empty:
+            logger.info(f"Successfully fetched {len(df)} tracks from Last.fm")
             df.to_csv(output_path, index=False)
-            print(f"Data saved to {output_path}")
+            logger.info(f"Data saved to {output_path}")
         else:
-            print("Failed to fetch data, DataFrame is None")
+            logger.error("Failed to fetch data, DataFrame is empty")
     except Exception as e:
-        logging.error(f"Configuration error: {e}")
+        logger.error(f"Error in main function: {e}")
+
+if __name__ == '__main__':
+    output_dir = os.path.join(os.getcwd(), 'data', 'raw')
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, 'top_tracks.csv')
+    main(output_path)

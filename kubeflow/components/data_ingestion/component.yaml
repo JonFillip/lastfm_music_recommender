@@ -1,0 +1,16 @@
+name: Data Ingestion
+description: Ingests data from Last.fm API
+inputs:
+  - {name: output_path, type: String}
+outputs:
+  - {name: output_data, type: Dataset}
+implementation:
+  container:
+    image: gcr.io/your-project-id/lastfm-music-recommender:latest
+    command:
+      - python
+      - /app/src/data_processing/data_ingestion.py
+      - --output_path
+      - {inputValue: output_path}
+      - --output_data
+      - {outputPath: output_data}
