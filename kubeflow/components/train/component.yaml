@@ -1,22 +1,20 @@
-name: Model Training
-description: Trains the content-based recommendation model
+name: Train Model
+description: Trains the music recommender model
 inputs:
-  - {name: train_data, type: Dataset}
-  - {name: val_data, type: Dataset}
-  - {name: hp_params, type: JsonObject}
+  - {name: data_path, type: String, description: 'Path to the preprocessed data'}
+  - {name: model_path, type: String, description: 'Path to save the trained model'}
+  - {name: hyperparameters, type: String, description: 'JSON string of hyperparameters'}
 outputs:
-  - {name: model, type: Model}
+  - {name: model, type: Model, description: 'Trained model'}
 implementation:
   container:
-    image: gcr.io/your-project-id/lastfm-music-recommender:latest
+    image: your-docker-registry/music-recommender:latest
     command:
       - python
-      - /app/src/algorithms/content_based.py
-      - --train_data
-      - {inputPath: train_data}
-      - --val_data
-      - {inputPath: val_data}
-      - --hp_params
-      - {inputValue: hp_params}
-      - --model
+      - train.py
+      - --data_path
+      - {inputValue: data_path}
+      - --model_path
       - {outputPath: model}
+      - --hyperparameters
+      - {inputValue: hyperparameters}

@@ -15,5 +15,11 @@ COPY . .
 # Set environment variables
 ENV PYTHONPATH=/app
 
+# Install additional dependencies for Kubeflow and Vertex AI
+RUN pip install --no-cache-dir kfp google-cloud-aiplatform
+
+# Make sure all scripts are executable
+RUN chmod +x src/*.py kubeflow/components/*/*.py
+
 # Run tests by default
 CMD ["python", "-m", "unittest", "discover", "tests"]

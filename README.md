@@ -8,6 +8,9 @@ This project implements an end-to-end machine learning pipeline for music recomm
 spotify_music_recommendation/
 ├── configs/
 │   └── pipeline_config.yaml
+├── deployment/
+│   └── vertex_ai/
+│       └── vertex_deployment.py
 ├── kubeflow/
 │   ├── components/
 │   │   ├── deploy/
@@ -39,7 +42,8 @@ spotify_music_recommendation/
 ├── .gitignore
 ├── Dockerfile
 ├── README.md
-└── requirements.txt
+├── requirements.txt
+└── run_pipeline.sh
 ```
 
 ## Pipeline Overview
@@ -69,16 +73,52 @@ The music recommendation pipeline consists of the following steps:
 
 3. Set up Kubeflow and Vertex AI according to their respective documentation.
 
+4. Make the run script executable:
+   ```
+   chmod +x run_pipeline.sh
+   ```
+
 ## Running the Pipeline
 
 1. Update the `configs/pipeline_config.yaml` file with your desired configuration.
 
-2. Compile the Kubeflow pipeline:
+2. Set the required environment variables:
    ```
-   python kubeflow/pipeline.py
+   export GCP_PROJECT_ID=your-gcp-project-id
+   export GCS_BUCKET=your-gcs-bucket-name
+   export REGION=your-gcp-region
    ```
 
-3. Upload the generated `music_recommendation_pipeline.yaml` file to your Kubeflow Pipelines UI or use the Kubeflow Pipelines SDK to run the pipeline.
+3. Run the entire pipeline and deployment process:
+   ```
+   ./run_pipeline.sh
+   ```
+
+This script will:
+- Compile the Kubeflow pipeline
+- Submit the pipeline for execution
+- Wait for the pipeline to complete
+- Deploy the model to Vertex AI
+- Set up a Cloud Build trigger for continuous integration
+- Create a Cloud Run service for serving your model
+
+## Manual Deployment
+
+If you prefer to deploy manually or need more control over the deployment process, you can use the deployment script directly:
+
+```
+python deployment/vertex_ai/vertex_deployment.py \
+    --project_id your-gcp-project-id \
+    --model_path gs://your-bucket/model-artifacts \
+    --endpoint_name music-recommender-endpoint \
+    --repo_name spotify-music-recommendation \
+    --branch_name main \
+    --service_name music-recommender-service \
+    --image_url gcr.io/your-project/music-recommender:latest \
+    --region us-central1
+```
+
+Make sure to replace the placeholder values with your actual GCP project details, model artifact location, and desired deployment configuration.
 
 ## Development
 
@@ -89,6 +129,10 @@ The music recommendation pipeline consists of the following steps:
 ## Monitoring
 
 The pipeline includes monitoring components that track model performance and data drift. Access these metrics through the Kubeflow Pipelines UI or the configured monitoring tools.
+
+## Continuous Integration and Deployment
+
+The project is set up with a CI/CD pipeline using Cloud Build and Cloud Run. Any push to the main branch will trigger a new build and deployment of the model serving application.
 
 ## License
 

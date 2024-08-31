@@ -1,16 +1,19 @@
 name: Data Ingestion
 description: Ingests data from Last.fm API
 inputs:
-  - {name: output_path, type: String}
+- {name: api_key, type: String}
+- {name: limit, type: String, default: '5000'}
 outputs:
-  - {name: output_data, type: Dataset}
+- {name: output_csv, type: String}
 implementation:
   container:
-    image: gcr.io/your-project-id/lastfm-music-recommender:latest
+    image: your-docker-registry/music-recommender:latest
     command:
-      - python
-      - /app/src/data_processing/data_ingestion.py
-      - --output_path
-      - {inputValue: output_path}
-      - --output_data
-      - {outputPath: output_data}
+    - python
+    - /app/kubeflow/components/data_ingestion/data_ingestion.py
+    - --api_key
+    - {inputValue: api_key}
+    - --limit
+    - {inputValue: limit}
+    - --output_csv
+    - {outputPath: output_csv}

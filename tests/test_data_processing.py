@@ -2,7 +2,7 @@ import unittest
 import pandas as pd
 import numpy as np
 from src.data_processing.data_ingestion import fetch_lastfm_data
-from src.data_processing.data_preprocess import preprocess_data
+from src.data_processing.data_preprocess import preprocess_data, split_data
 from src.data_processing.data_validation import validate_data
 
 class TestDataProcessing(unittest.TestCase):
@@ -31,15 +31,37 @@ class TestDataProcessing(unittest.TestCase):
         # Test the data preprocessing function
         processed_data, mlb = preprocess_data(self.sample_data)
         
+        # Check if all expected columns are present
+        expected_columns = ['name', 'artist', 'playcount_normalized'] + [f'tag_{tag}' for tag in mlb.classes_]
+        self.assertTrue(all(col in processed_data.columns for col in expected_columns))
+        
         # Check if playcount is normalized
-        self.assertTrue('playcount_normalized' in processed_data.columns)
-        self.assertAlmostEqual(processed_data['playcount_normalized'].mean(), 0, places=7)
-        self.assertAlmostEqual(processed_data['playcount_normalized'].std(), 1, places=7)
-
+        self.assertTrue(processed_data['playcount_normalized'].min() >= 0)
+        self.assertTrue(processed_data['playcount_normalized'].max() <= 1)
+        
         # Check if tags are one-hot encoded
-        self.assertTrue('tag_rock' in processed_data.columns)
-        self.assertTrue('tag_pop' in processed_data.columns)
-        self.assertTrue('tag_jazz' in processed_data.columns)
+        self.assertTrue(all(processed_data[f'tag_{tag}'].isin([0, 1]).all() for tag in mlb.classes_))
+        
+        # Check if 'album' column is dropped
+        self.assertNotIn('album', processed_data.columns)
+        
+        # Check if binary indicators for missing values are created
+        self.assertIn('has_tags', processed_data.columns)
+        self.assertIn('has_similar_tracks', processed_data.columns)
+
+    def test_data_split(self):
+        processed_data, _ = preprocess_data(self.sample_data)
+        train, val, test = split_data(processed_data)
+        
+        # Check if the splits have the correct proportions
+        self.assertAlmostEqual(len(train) / len(processed_data), 0.6, delta=0.1)
+        self.assertAlmostEqual(len(val) / len(processed_data), 0.2, delta=0.1)
+        self.assertAlmostEqual(len(test) / len(processed_data), 0.2, delta=0.1)
+        
+        # Check if the splits have the same columns as the input data
+        self.assertListEqual(list(train.columns), list(processed_data.columns))
+        self.assertListEqual(list(val.columns), list(processed_data.columns))
+        self.assertListEqual(list(test.columns), list(processed_data.columns))
 
     def test_data_validation(self):
         # Create a schema for testing
@@ -55,6 +77,12 @@ class TestDataProcessing(unittest.TestCase):
         # Test the data validation function
         anomalies = validate_data(self.sample_data, schema)
         self.assertFalse(anomalies.anomaly_info)  # Expecting no anomalies in the sample data
+        
+        # Test with invalid data
+        invalid_data = self.sample_data.copy()
+        invalid_data.loc[0, 'playcount'] = 'invalid'
+        anomalies = validate_data(invalid_data, schema)
+        self.assertTrue(anomalies.anomaly_info)  # Expecting anomalies in the invalid data
 
 if __name__ == '__main__':
     unittest.main()

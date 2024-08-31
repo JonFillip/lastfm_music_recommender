@@ -1,19 +1,22 @@
 name: Hyperparameter Tuning
-description: Performs hyperparameter tuning using Katib
+description: Runs hyperparameter tuning for the music recommender model using Katib
 inputs:
-  - {name: train_data, type: Dataset}
-  - {name: val_data, type: Dataset}
+  - {name: train_data, type: Dataset, description: 'Path to the training data'}
+  - {name: val_data, type: Dataset, description: 'Path to the validation data'}
+  - {name: config_path, type: String, description: 'Path to the configuration file'}
 outputs:
-  - {name: best_hyperparameters, type: JsonObject}
+  - {name: optimal_hyperparameters, type: JsonObject, description: 'Optimal hyperparameters found by Katib'}
 implementation:
   container:
-    image: gcr.io/your-project-id/lastfm-music-recommender:latest
+    image: your-docker-registry/music-recommender:latest
     command:
       - python
-      - /app/src/hyperparameter_tuning/katib_tuning.py
+      - hyperparameter_tuning.py
       - --train_data
       - {inputPath: train_data}
       - --val_data
       - {inputPath: val_data}
-      - --best_hyperparameters
-      - {outputPath: best_hyperparameters}
+      - --config_path
+      - {inputPath: config_path}
+      - --output_path
+      - {outputPath: optimal_hyperparameters}

@@ -1,0 +1,22 @@
+name: Model Evaluation
+description: Evaluates the trained music recommender model
+inputs:
+  - {name: model_path, type: Model, description: 'Path to the trained model'}
+  - {name: test_data_path, type: Dataset, description: 'Path to the test data'}
+  - {name: config_path, type: String, description: 'Path to the configuration file'}
+outputs:
+  - {name: evaluation_results, type: JsonObject, description: 'Evaluation metrics'}
+implementation:
+  container:
+    image: your-docker-registry/music-recommender:latest
+    command:
+      - python
+      - evaluation.py
+      - --model_path
+      - {inputPath: model_path}
+      - --test_data_path
+      - {inputPath: test_data_path}
+      - --config_path
+      - {inputPath: config_path}
+      - --output_path
+      - {outputPath: evaluation_results}

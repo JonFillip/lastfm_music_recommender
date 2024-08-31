@@ -1,31 +1,22 @@
-name: Data Preprocessing
-description: Preprocesses the ingested data
+name: Preprocess Data
+description: Preprocesses the input data for the music recommender system
 inputs:
-  - {name: input_data, type: Dataset}
-  - {name: output_train_path, type: String}
-  - {name: output_val_path, type: String}
-  - {name: output_test_path, type: String}
+  - {name: input_file, type: String, description: 'Path to the input data file'}
 outputs:
-  - {name: train_data, type: Dataset}
-  - {name: val_data, type: Dataset}
-  - {name: test_data, type: Dataset}
+  - {name: output_train, type: Dataset, description: 'Preprocessed training data'}
+  - {name: output_val, type: Dataset, description: 'Preprocessed validation data'}
+  - {name: output_test, type: Dataset, description: 'Preprocessed test data'}
 implementation:
   container:
-    image: gcr.io/your-project-id/lastfm-music-recommender:latest
+    image: your-docker-registry/music-recommender:latest
     command:
       - python
-      - /app/src/data_processing/data_preprocess.py
-      - --input_data
-      - {inputPath: input_data}
-      - --output_train_path
-      - {inputValue: output_train_path}
-      - --output_val_path
-      - {inputValue: output_val_path}
-      - --output_test_path
-      - {inputValue: output_test_path}
-      - --train_data
-      - {outputPath: train_data}
-      - --val_data
-      - {outputPath: val_data}
-      - --test_data
-      - {outputPath: test_data}
+      - preprocess.py
+      - --input_file
+      - {inputPath: input_file}
+      - --output_train
+      - {outputPath: output_train}
+      - --output_val
+      - {outputPath: output_val}
+      - --output_test
+      - {outputPath: output_test}

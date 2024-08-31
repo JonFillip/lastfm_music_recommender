@@ -1,16 +1,15 @@
+import argparse
 from kubeflow.katib import KatibClient
 import yaml
 from src.utils.logging_utils import setup_logger, log_error, log_step
-import argparse
 
 logger = setup_logger('hyperparameter_tuning')
 
-def load_config():
-    with open('configs/pipeline_config.yaml', 'r') as f:
+def load_config(config_path):
+    with open(config_path, 'r') as f:
         return yaml.safe_load(f)
 
-def create_experiment(name, namespace, train_data, val_data):
-    config = load_config()
+def create_experiment(name, namespace, train_data, val_data, config):
     hp_config = config['hyperparameter_tuning']
 
     experiment = {
@@ -149,13 +148,14 @@ def create_experiment(name, namespace, train_data, val_data):
     }
     return experiment
 
-def run_hyperparameter_tuning(train_data, val_data):
+def run_hyperparameter_tuning(train_data, val_data, config_path):
     try:
         log_step(logger, 'Starting Hyperparameter Tuning', 'Katib')
         
+        config = load_config(config_path)
         katib_client = KatibClient()
         
-        experiment = create_experiment("music-recommender-tuning", "default", train_data, val_data)
+        experiment = create_experiment("music-recommender-tuning", "default", train_data, val_data, config)
         katib_client.create_experiment(experiment)
         
         logger.info("Hyperparameter tuning experiment created successfully")
@@ -172,9 +172,9 @@ def run_hyperparameter_tuning(train_data, val_data):
         log_error(logger, e, 'Hyperparameter Tuning')
         raise
 
-def main(train_data, val_data):
+def main(train_data, val_data, config_path):
     try:
-        results = run_hyperparameter_tuning(train_data, val_data)
+        results = run_hyperparameter_tuning(train_data, val_data, config_path)
         # You can save the results or pass them to the next step in your pipeline
         return results
     except Exception as e:
@@ -185,6 +185,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run hyperparameter tuning for content-based recommender')
     parser.add_argument('--train_data', type=str, required=True, help='Path to training data')
     parser.add_argument('--val_data', type=str, required=True, help='Path to validation data')
+    parser.add_argument('--config_path', type=str, required=True, help='Path to configuration file')
     args = parser.parse_args()
     
-    main(args.train_data, args.val_data)
+    main(args.train_data, args.val_data, args.config_path)

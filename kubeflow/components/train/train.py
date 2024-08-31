@@ -1,32 +1,36 @@
-from kfp.v2.dsl import component
-from kfp.v2.dsl import Input, Output, Model
+import argparse
+import os
+from src.algorithms.content_based import ContentBasedRecommender
+from src.utils.logging_utils import setup_logging
+from src.utils.model_utils import save_model
 
-@component(
-    packages_to_install=['pandas', 'scikit-learn', 'tensorflow'],
-    base_image='python:3.9'
-)
-def train_model(
-    algorithm: str,
-    input_data: Input["Dataset"],
-    output_model: Output[Model]
-):
-    import pandas as pd
-    import pickle
+logger = setup_logging()
+
+def train_model(data_path, model_path, hyperparameters):
+    logger.info("Starting model training")
     
-    if algorithm == 'content_based':
-        from src.algorithms.content_based import ContentBasedRecommender
-        model = ContentBasedRecommender()
-    elif algorithm == 'collaborative':
-        from src.algorithms.collaborative_filtering import CollaborativeFilter
-        model = CollaborativeFilter()
-    elif algorithm == 'hybrid':
-        from src.algorithms.hybrid_model import HybridRecommender
-        model = HybridRecommender()
-    else:
-        raise ValueError(f"Unknown algorithm: {algorithm}")
+    # Load data
+    # Assume data is loaded and preprocessed here
     
-    data = pd.read_csv(input_data.path)
+    # Initialize and train the model
+    model = ContentBasedRecommender(**hyperparameters)
     model.fit(data)
     
-    with open(output_model.path, 'wb') as f:
-        pickle.dump(model, f)
+    # Save the model
+    save_model(model, model_path)
+    
+    logger.info(f"Model training completed. Model saved at {model_path}")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Train the music recommender model')
+    parser.add_argument('--data_path', type=str, required=True, help='Path to the preprocessed data')
+    parser.add_argument('--model_path', type=str, required=True, help='Path to save the trained model')
+    parser.add_argument('--hyperparameters', type=str, required=True, help='JSON string of hyperparameters')
+    
+    args = parser.parse_args()
+    
+    # Convert hyperparameters from JSON string to dictionary
+    import json
+    hyperparameters = json.loads(args.hyperparameters)
+    
+    train_model(args.data_path, args.model_path, hyperparameters)
