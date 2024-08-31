@@ -1,11 +1,11 @@
-# Spotify Music Recommendation System
+# LastFM Music Recommendation System
 
 This project implements an end-to-end machine learning pipeline for music recommendation using Kubeflow and Vertex AI.
 
 ## Project Structure
 
 ```
-spotify_music_recommendation/
+lastfm_music_recommendation/
 ├── configs/
 │   └── pipeline_config.yaml
 ├── deployment/
