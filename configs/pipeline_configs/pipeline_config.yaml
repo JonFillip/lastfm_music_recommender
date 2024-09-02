@@ -1,0 +1,58 @@
+storage:
+  bucket_name: your-project-id-ml-artifacts
+
+model:
+  name: your_model_name
+
+data_ingestion:
+  limit: 5000
+  output_path: '/data/raw/top_tracks.csv'
+
+data_preprocessing:
+  test_size: 0.2
+  val_size: 0.2
+  output_train_path: '/data/processed/train.csv'
+  output_val_path: '/data/processed/val.csv'
+  output_test_path: '/data/processed/test.csv'
+
+model_training:
+  hidden_layers: 2
+  neurons: 64
+  learning_rate: 0.001
+  epochs: 20
+  batch_size: 32
+  model_output_path: '/models/content_based_model'
+
+model_evaluation:
+  metrics:
+    - 'binary_accuracy'
+    - 'cosine_similarity'
+
+model_serving:
+  model_name: 'content_based_recommender'
+  model_version: 'v1'
+
+data_validation:
+  schema_path: '/data/schema/features_schema.pbtxt'
+  schema_version: '1.0.0'
+  drift_threshold: 0.1
+
+hyperparameter_tuning:
+  algorithm: 'random'
+  max_trials: 10
+  objective: 'val_loss'
+  parameters:
+    hidden_layers:
+      min: 1
+      max: 4
+    neurons:
+      min: 32
+      max: 128
+    learning_rate:
+      min: 0.0001
+      max: 0.01
+
+monitoring:
+  metric_export_interval: 60  # in seconds
+  alert_threshold:
+    accuracy_drop: 0.05

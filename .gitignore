@@ -105,12 +105,10 @@ venv.bak/
 .mypy_cache/
 .vs/
 .vscode/
+.pytest_cache/
 
 # Google API Keys
-
-
-# Scripts
-Scripts
+/secret_manager
 
 # Data Folder
 data

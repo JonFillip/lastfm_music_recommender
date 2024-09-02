@@ -138,5 +138,52 @@ class TestFeatureEngineering(unittest.TestCase):
         self.assertEqual(result_basic.loc[1, 'num_tags'], 0)
         self.assertEqual(result_basic.loc[2, 'num_similar_tracks'], 0)
 
+    def test_output_types_and_shapes(self):
+        result = engineer_basic_features(self.df)
+        result = engineer_additional_features(result)
+        result = refine_features(result)
+        result = add_tag_popularity(result)
+        result = add_similar_tracks_avg_playcount(result)
+        result = add_interaction_features(result)
+        result = add_target_encoding(result)
+        result = refine_features_further(result)
+        result, _ = vectorize_all_text_features(result)
+
+        # Check output types
+        self.assertTrue(isinstance(result, pd.DataFrame))
+        self.assertTrue(all(np.issubdtype(result[col].dtype, np.number) for col in result.columns 
+                            if not pd.api.types.is_categorical_dtype(result[col])))
+
+        # Check output shape
+        self.assertEqual(result.shape[0], self.df.shape[0])
+        self.assertGreater(result.shape[1], self.df.shape[1])
+
+    def test_consistency(self):
+        # Run the feature engineering process twice and compare results
+        result1 = engineer_basic_features(self.df)
+        result1 = engineer_additional_features(result1)
+        result1 = refine_features(result1)
+        
+        result2 = engineer_basic_features(self.df)
+        result2 = engineer_additional_features(result2)
+        result2 = refine_features(result2)
+        
+        pd.testing.assert_frame_equal(result1, result2)
+
+    def test_no_unexpected_nan(self):
+        result = engineer_basic_features(self.df)
+        result = engineer_additional_features(result)
+        result = refine_features(result)
+        result = add_tag_popularity(result)
+        result = add_similar_tracks_avg_playcount(result)
+        result = add_interaction_features(result)
+        result = add_target_encoding(result)
+        result = refine_features_further(result)
+        result, _ = vectorize_all_text_features(result)
+
+        # Check for unexpected NaN values
+        unexpected_nan = result.isna().sum()
+        self.assertTrue(all(unexpected_nan == 0), f"Unexpected NaN values found: {unexpected_nan[unexpected_nan > 0]}")
+
 if __name__ == '__main__':
     unittest.main()

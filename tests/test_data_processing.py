@@ -2,8 +2,14 @@ import unittest
 import pandas as pd
 import numpy as np
 from src.data_processing.data_ingestion import fetch_lastfm_data
-from src.data_processing.data_preprocess import preprocess_data, split_data
+from src.data_processing.data_preprocess import (
+    load_data, robust_string_parser, preprocess_data, one_hot_encode,
+    impute_data, prepare_data, main
+)
 from src.data_processing.data_validation import validate_data
+from sklearn.preprocessing import StandardScaler, MultiLabelBinarizer
+import os
+import tempfile
 
 class TestDataProcessing(unittest.TestCase):
     def setUp(self):
@@ -17,72 +23,117 @@ class TestDataProcessing(unittest.TestCase):
             'similar_tracks': ['Track1, Track2', 'Track3, Track4', 'Track5, Track6']
         })
 
-    def test_data_ingestion(self):
-        # Mock the API call for testing
-        def mock_fetch_lastfm_data(api_key, limit):
-            return self.sample_data
+    def test_load_data(self):
+        # Create a temporary CSV file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as temp_file:
+            self.sample_data.to_csv(temp_file.name, index=False)
+            temp_file_path = temp_file.name
 
-        # Test the data ingestion function
-        result = mock_fetch_lastfm_data('fake_api_key', 3)
-        self.assertEqual(len(result), 3)
-        self.assertListEqual(list(result.columns), ['name', 'artist', 'album', 'playcount', 'tags', 'similar_tracks'])
+        try:
+            # Test loading the data
+            loaded_data = load_data(temp_file_path)
+            pd.testing.assert_frame_equal(loaded_data, self.sample_data)
+        finally:
+            # Clean up the temporary file
+            os.unlink(temp_file_path)
 
-    def test_data_preprocessing(self):
-        # Test the data preprocessing function
-        processed_data, mlb = preprocess_data(self.sample_data)
-        
-        # Check if all expected columns are present
-        expected_columns = ['name', 'artist', 'playcount_normalized'] + [f'tag_{tag}' for tag in mlb.classes_]
-        self.assertTrue(all(col in processed_data.columns for col in expected_columns))
-        
-        # Check if playcount is normalized
-        self.assertTrue(processed_data['playcount_normalized'].min() >= 0)
-        self.assertTrue(processed_data['playcount_normalized'].max() <= 1)
-        
-        # Check if tags are one-hot encoded
-        self.assertTrue(all(processed_data[f'tag_{tag}'].isin([0, 1]).all() for tag in mlb.classes_))
+    def test_robust_string_parser(self):
+        test_cases = [
+            ('rock, pop', ['rock', 'pop']),
+            ('', []),
+            (np.nan, []),
+            (['rock', 'pop'], ['rock', 'pop']),
+            (123, ['123']),
+        ]
+        for input_value, expected_output in test_cases:
+            self.assertEqual(robust_string_parser(input_value), expected_output)
+
+    def test_preprocess_data(self):
+        preprocessed_data = preprocess_data(self.sample_data)
         
         # Check if 'album' column is dropped
-        self.assertNotIn('album', processed_data.columns)
+        self.assertNotIn('album', preprocessed_data.columns)
         
-        # Check if binary indicators for missing values are created
-        self.assertIn('has_tags', processed_data.columns)
-        self.assertIn('has_similar_tracks', processed_data.columns)
+        # Check if 'tags' and 'similar_tracks' are properly parsed
+        self.assertTrue(all(isinstance(tags, list) for tags in preprocessed_data['tags']))
+        self.assertTrue(all(isinstance(tracks, list) for tracks in preprocessed_data['similar_tracks']))
+        
+        # Check if binary indicators are created
+        self.assertIn('has_tags', preprocessed_data.columns)
+        self.assertIn('has_similar_tracks', preprocessed_data.columns)
+        
+        # Check if playcount is converted to numeric
+        self.assertTrue(np.issubdtype(preprocessed_data['playcount'].dtype, np.number))
 
-    def test_data_split(self):
-        processed_data, _ = preprocess_data(self.sample_data)
-        train, val, test = split_data(processed_data)
-        
-        # Check if the splits have the correct proportions
-        self.assertAlmostEqual(len(train) / len(processed_data), 0.6, delta=0.1)
-        self.assertAlmostEqual(len(val) / len(processed_data), 0.2, delta=0.1)
-        self.assertAlmostEqual(len(test) / len(processed_data), 0.2, delta=0.1)
-        
-        # Check if the splits have the same columns as the input data
-        self.assertListEqual(list(train.columns), list(processed_data.columns))
-        self.assertListEqual(list(val.columns), list(processed_data.columns))
-        self.assertListEqual(list(test.columns), list(processed_data.columns))
+    def test_one_hot_encode(self):
+        input_series = pd.Series([['A', 'B'], ['B', 'C'], ['A', 'C']])
+        encoded = one_hot_encode(input_series)
+        expected_output = pd.DataFrame({
+            'A': [1, 0, 1],
+            'B': [1, 1, 0],
+            'C': [0, 1, 1]
+        })
+        pd.testing.assert_frame_equal(encoded, expected_output)
 
-    def test_data_validation(self):
-        # Create a schema for testing
-        schema = {
-            'name': {'type': 'string'},
-            'artist': {'type': 'string'},
-            'album': {'type': 'string'},
-            'playcount': {'type': 'integer'},
-            'tags': {'type': 'string'},
-            'similar_tracks': {'type': 'string'}
-        }
-
-        # Test the data validation function
-        anomalies = validate_data(self.sample_data, schema)
-        self.assertFalse(anomalies.anomaly_info)  # Expecting no anomalies in the sample data
+    def test_impute_data(self):
+        # Create a sample DataFrame with missing values
+        df_with_missing = pd.DataFrame({
+            'name': ['Song1', 'Song2', 'Song3'],
+            'artist': ['Artist1', 'Artist2', 'Artist3'],
+            'playcount': [1000, np.nan, 3000],
+            'tags': [['rock', 'pop'], [], ['electronic', 'dance']],
+            'similar_tracks': [['Track1', 'Track2'], ['Track3', 'Track4'], []]
+        })
         
-        # Test with invalid data
-        invalid_data = self.sample_data.copy()
-        invalid_data.loc[0, 'playcount'] = 'invalid'
-        anomalies = validate_data(invalid_data, schema)
-        self.assertTrue(anomalies.anomaly_info)  # Expecting anomalies in the invalid data
+        imputed_df = impute_data(df_with_missing)
+        
+        # Check if missing values are imputed
+        self.assertFalse(imputed_df['playcount'].isnull().any())
+        self.assertTrue(all(len(tags) > 0 for tags in imputed_df['tags']))
+        self.assertTrue(all(len(tracks) > 0 for tracks in imputed_df['similar_tracks']))
+
+    def test_prepare_data(self):
+        preprocessed_df = preprocess_data(self.sample_data)
+        X_train, X_test, y_train, y_test, names_train, names_test, scaler, mlb = prepare_data(preprocessed_df, self.sample_data)
+        
+        # Check shapes
+        self.assertEqual(X_train.shape[0] + X_test.shape[0], len(self.sample_data))
+        self.assertEqual(y_train.shape[0] + y_test.shape[0], len(self.sample_data))
+        
+        # Check if data is scaled
+        self.assertTrue(np.all(X_train.mean(axis=0) < 1e-6))  # Close to 0 mean
+        self.assertTrue(np.all(np.abs(X_train.std(axis=0) - 1) < 1e-6))  # Close to unit variance
+        
+        # Check if MultiLabelBinarizer is properly fitted
+        self.assertTrue(isinstance(mlb, MultiLabelBinarizer))
+        self.assertTrue(len(mlb.classes_) > 0)
+
+    def test_main(self):
+        # Create temporary input and output files
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as input_file, \
+            tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as output_file:
+            self.sample_data.to_csv(input_file.name, index=False)
+            input_path = input_file.name
+            output_path = output_file.name
+
+        try:
+            # Run the main function
+            main(input_path, output_path)
+            
+            # Check if the output file is created and not empty
+            self.assertTrue(os.path.exists(output_path))
+            self.assertTrue(os.path.getsize(output_path) > 0)
+            
+            # Load the output file and perform some basic checks
+            output_data = pd.read_csv(output_path)
+            self.assertEqual(len(output_data), len(self.sample_data))
+            self.assertNotIn('album', output_data.columns)
+            self.assertIn('has_tags', output_data.columns)
+            self.assertIn('has_similar_tracks', output_data.columns)
+        finally:
+            # Clean up temporary files
+            os.unlink(input_path)
+            os.unlink(output_path)
 
 if __name__ == '__main__':
     unittest.main()

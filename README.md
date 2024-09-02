@@ -10,7 +10,8 @@ lastfm_music_recommendation/
 │   └── pipeline_config.yaml
 ├── deployment/
 │   └── vertex_ai/
-│       └── vertex_deployment.py
+│       ├── vertex_deployment.py
+│       └── vertex_ai_monitoring.py
 ├── kubeflow/
 │   ├── components/
 │   │   ├── deploy/
@@ -21,6 +22,8 @@ lastfm_music_recommendation/
 │   └── pipeline.py
 ├── notebooks/
 │   └── exploratory_analysis.ipynb
+├── scripts/
+│   └── run_pipeline.sh
 ├── src/
 │   ├── algorithms/
 │   │   └── content_based.py
@@ -32,6 +35,8 @@ lastfm_music_recommendation/
 │   │   └── model_evaluation.py
 │   ├── hyperparameter_tuning/
 │   │   └── katib_tuning.py
+│   ├── monitoring/
+│   │   └── pipeline_monitoring.py
 │   ├── serving/
 │   │   └── model_serving.py
 │   └── utils/
@@ -42,8 +47,8 @@ lastfm_music_recommendation/
 ├── .gitignore
 ├── Dockerfile
 ├── README.md
-├── requirements.txt
-└── run_pipeline.sh
+├── cloudbuild.yaml
+└── requirements.txt
 ```
 
 ## Pipeline Overview
@@ -75,7 +80,7 @@ The music recommendation pipeline consists of the following steps:
 
 4. Make the run script executable:
    ```
-   chmod +x run_pipeline.sh
+   chmod +x scripts/run_pipeline.sh
    ```
 
 ## Running the Pipeline
@@ -91,7 +96,7 @@ The music recommendation pipeline consists of the following steps:
 
 3. Run the entire pipeline and deployment process:
    ```
-   ./run_pipeline.sh
+   ./scripts/run_pipeline.sh
    ```
 
 This script will:
@@ -99,8 +104,8 @@ This script will:
 - Submit the pipeline for execution
 - Wait for the pipeline to complete
 - Deploy the model to Vertex AI
-- Set up a Cloud Build trigger for continuous integration
-- Create a Cloud Run service for serving your model
+- Start the Prometheus monitoring server
+- Set up Vertex AI monitoring
 
 ## Manual Deployment
 
@@ -128,11 +133,67 @@ Make sure to replace the placeholder values with your actual GCP project details
 
 ## Monitoring
 
-The pipeline includes monitoring components that track model performance and data drift. Access these metrics through the Kubeflow Pipelines UI or the configured monitoring tools.
+The project includes a comprehensive monitoring system that tracks model performance, system resources, and data drift. There are two main components to the monitoring system:
+
+### 1. Vertex AI Monitoring (deployment/vertex_ai/vertex_ai_monitoring.py)
+
+This component sets up monitoring and alerts specifically for models deployed on Vertex AI.
+
+Key features:
+- Monitors efficiency metrics: CPU utilization, GPU utilization, memory utilization, service latency, throughput, and error rate.
+- Logs sample request-response payloads to Cloud Storage for analysis.
+- Implements an automated process to compute and store serving statistics in BigQuery.
+- Detects training-serving skew and data drift by comparing serving data statistics to baseline training data statistics.
+- Creates custom metrics and alerts for data drift, prediction drift, resource utilization, and latency.
+
+To set up Vertex AI monitoring:
+
+```
+python deployment/vertex_ai/vertex_ai_monitoring.py \
+    --project_id your-gcp-project-id \
+    --model_name your-model-name
+```
+
+### 2. Data Validation (src/data_processing/data_validation.py)
+
+This component handles data validation, schema generation, and drift detection.
+
+Key features:
+- Generates and saves data schema to Google Cloud Storage.
+- Validates both training and serving data, saving statistics to GCS.
+- Compares training and serving statistics to detect anomalies.
+- Visualizes statistics and saves plots.
+- Detects data drift between training and serving data.
+
+The data validation process is integrated into the main pipeline and can also be run separately for ad-hoc analysis.
+
+### Configuring Data Drift Threshold
+
+You can configure the data drift threshold in the `configs/pipeline_config.yaml` file. Under the `data_validation` section, set the `drift_threshold` value:
+
+```yaml
+data_validation:
+  schema_path: '/data/schema/features_schema.pbtxt'
+  schema_version: '1.0.0'
+  drift_threshold: 0.1  # Adjust this value as needed
+```
+
+This threshold is used in both the Vertex AI monitoring and the data validation components. When the drift score for any feature exceeds this threshold, a warning will be logged, and an alert will be triggered in the Vertex AI monitoring system.
 
 ## Continuous Integration and Deployment
 
-The project is set up with a CI/CD pipeline using Cloud Build and Cloud Run. Any push to the main branch will trigger a new build and deployment of the model serving application.
+The project uses Cloud Build for continuous integration and Cloud Run for continuous delivery. The process is defined in the `cloudbuild.yaml` file.
+
+Key steps in the CI/CD pipeline:
+1. Trigger: Any push to the main branch initiates the pipeline.
+2. Build: The Docker image is built using the project's Dockerfile.
+3. Test: Unit tests are run to ensure code quality.
+4. Deploy: If tests pass, the new image is deployed to Cloud Run.
+
+To set up the CI/CD pipeline:
+1. Enable the Cloud Build and Cloud Run APIs in your GCP project.
+2. Configure the Cloud Build trigger to watch your repository.
+3. Ensure the necessary permissions are set for Cloud Build to deploy to Cloud Run.
 
 ## License
 
