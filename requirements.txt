@@ -2,6 +2,7 @@ kfp==1.8.12
 google-cloud-storage==1.43.0
 google-cloud-bigquery==2.30.1
 google-cloud-pubsub==2.15.0
+google-cloud-build
 tensorflow-data-validation
 google-auth==1.35.0
 jsonschema==3.2.0
@@ -22,4 +23,6 @@ matplotlib
 seaborn
 gputil
 prometheus_client==0.16.0
-psutil==5.9.0
+psutil==6.0.0
+kubeflow-katib
+kserve

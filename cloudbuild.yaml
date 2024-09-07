@@ -1,11 +1,7 @@
 steps:
-# Build the Docker image
+# Build and push Docker image to Container Registry
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-t', 'gcr.io/$PROJECT_ID/music-recommender:$COMMIT_SHA', '.']
-
-# Push the image to Container Registry
-- name: 'gcr.io/cloud-builders/docker'
-  args: ['push', 'gcr.io/$PROJECT_ID/music-recommender:$COMMIT_SHA']
+  args: ['build', '-t', 'gcr.io/$PROJECT_ID/music-recommender:$COMMIT_SHA', '--push', '.']
 
 # Deploy to Cloud Run
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -27,7 +23,6 @@ steps:
   args:
   - '-c'
   - |
-    pip install kfp google-cloud-aiplatform
     python deployment/deploy_pipeline.py --platform vertex --project_id $PROJECT_ID --region ${_REGION} --output_file pipeline.yaml
 
 images:
@@ -35,3 +30,6 @@ images:
 
 substitutions:
   _REGION: us-central1  # default region, can be overridden
+
+# Optionally add logging
+logsBucket: gs://$PROJECT_ID-cloudbuild-logs

@@ -67,8 +67,8 @@ The music recommendation pipeline consists of the following steps:
 
 1. Clone the repository:
    ```
-   git clone https://github.com/your-username/spotify_music_recommendation.git
-   cd spotify_music_recommendation
+   git clone https://github.com/JonFillip/lastfm_music_recommender.git
+   cd lastfm_music_recommendation
    ```
 
 2. Install the required dependencies:
@@ -104,8 +104,7 @@ This script will:
 - Submit the pipeline for execution
 - Wait for the pipeline to complete
 - Deploy the model to Vertex AI
-- Start the Prometheus monitoring server
-- Set up Vertex AI monitoring
+- Set up Vertex AI monitoring (Start the Prometheus monitoring server)
 
 ## Manual Deployment
 

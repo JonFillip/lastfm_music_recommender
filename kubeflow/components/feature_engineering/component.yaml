@@ -1,0 +1,22 @@
+name: Feature Engineering Data
+description: Engineers new features from the output preprocess component for the music recommender system
+inputs:
+  - {name: input_file, type: String, description: 'Path to the input data file'}
+outputs:
+  - {name: output_train, type: Dataset, description: 'Preprocessed vectorized data'}
+  - {name: output_val, type: Dataset, description: 'feature importance data'}
+  - {name: output_test, type: Dataset, description: 'Preprocessed test data'}
+implementation:
+  container:
+    image: your-docker-registry/music-recommender:latest
+    command:
+      - python
+      - feature_eng.py
+      - --input_file
+      - {inputPath: input_file}
+      - --output_train
+      - {outputPath: output_train}
+      - --output_val
+      - {outputPath: output_val}
+      - --output_test
+      - {outputPath: output_test}

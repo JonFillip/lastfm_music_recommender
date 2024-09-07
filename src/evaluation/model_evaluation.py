@@ -1,6 +1,6 @@
 import tensorflow as tf
 import numpy as np
-from src.utils.logging_utils import setup_logger, log_error, log_metric
+from src.utils.logging_utils import setup_logger, log_error, log_metric, log_step
 import yaml
 
 logger = setup_logger('model_evaluation')

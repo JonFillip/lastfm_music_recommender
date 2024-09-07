@@ -1,16 +1,83 @@
-name: Model Deployment
-description: Deploys the trained model
+name: Deploy Model
+description: Deploys a trained model to Vertex AI and optionally sets up CI/CD
+
 inputs:
-  - {name: model, type: Model}
+  - {name: project_id, type: String}
+  - {name: model_path, type: Model}
+  - {name: endpoint_name, type: String}
+  - {name: repo_name, type: String, optional: true}
+  - {name: branch_name, type: String, optional: true}
+  - {name: service_name, type: String, optional: true}
+  - {name: image_url, type: String, optional: true}
+  - {name: region, type: String, default: "us-central1"}
+  - {name: setup_ci_cd, type: Boolean, default: "false"}
+
 outputs:
-  - {name: model_info, type: JsonObject}
+  - {name: endpoint, type: String,description: 'vertex ai endpoint'}
+  - {name: model, type: String,description: 'model path'}
+
 implementation:
   container:
-    image: gcr.io/your-project-id/lastfm-music-recommender:latest
+    image: python:3.9
     command:
       - python
-      - /app/src/serving/model_serving.py
-      - --model
-      - {inputPath: model}
-      - --model_info
-      - {outputPath: model_info}
+      - -c
+      - |
+        from kubeflow.components.deploy.deploy import deploy_model
+        import argparse
+
+        # Parse input arguments
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--project_id', type=str, required=True)
+        parser.add_argument('--model_path', type=str, required=True)
+        parser.add_argument('--endpoint_name', type=str, required=True)
+        parser.add_argument('--repo_name', type=str, default='')
+        parser.add_argument('--branch_name', type=str, default='')
+        parser.add_argument('--service_name', type=str, default='')
+        parser.add_argument('--image_url', type=str, default='')
+        parser.add_argument('--region', type=str, default='us-central1')
+        parser.add_argument('--setup_ci_cd', type=bool, default=False)
+        args = parser.parse_args()
+
+        # Call the deploy_model function
+        endpoint, model = deploy_model(
+            project_id=args.project_id,
+            model_path=args.model_path,
+            endpoint_name=args.endpoint_name,
+            repo_name=args.repo_name,
+            branch_name=args.branch_name,
+            service_name=args.service_name,
+            image_url=args.image_url,
+            region=args.region,
+            setup_ci_cd=args.setup_ci_cd
+        )
+
+        # Write outputs
+        with open('/tmp/endpoint.txt', 'w') as f:
+            f.write(endpoint)
+        with open('/tmp/model.txt', 'w') as f:
+            f.write(model)
+
+    args:
+      - --project_id
+      - {inputValue: project_id}
+      - --model_path
+      - {inputPath: model_path}
+      - --endpoint_name
+      - {inputValue: endpoint_name}
+      - --repo_name
+      - {inputValue: repo_name}
+      - --branch_name
+      - {inputValue: branch_name}
+      - --service_name
+      - {inputValue: service_name}
+      - --image_url
+      - {inputValue: image_url}
+      - --region
+      - {inputValue: region}
+      - --setup_ci_cd
+      - {inputValue: setup_ci_cd}
+      - --output_val
+      - {outputPath: endpoint}
+      - --output_test
+      - {outputPath: model}

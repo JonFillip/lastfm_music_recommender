@@ -2,28 +2,35 @@ import argparse
 from google.cloud import aiplatform
 from google.cloud.devtools import cloudbuild_v1
 from google.cloud import run_v2
+from src.utils.logging_utils import setup_logger, log_error, log_step
 
-def deploy_to_vertex_ai(project_id, model_path, endpoint_name):
-    aiplatform.init(project=project_id)
-    
-    # Upload the model
-    model = aiplatform.Model.upload(
-        display_name=endpoint_name,
-        artifact_uri=model_path,
-        serving_container_image_uri="us-docker.pkg.dev/vertex-ai/prediction/tf2-cpu.2-6:latest"
-    )
-    
-    # Deploy the model to an endpoint
-    endpoint = model.deploy(
-        machine_type="n1-standard-2",
-        min_replica_count=1,
-        max_replica_count=3,
-        accelerator_type=None,
-        accelerator_count=None
-    )
-    
-    print(f"Model deployed to endpoint: {endpoint.resource_name}")
-    return endpoint
+logger = setup_logger('vertex_ai_deployment')
+
+def deploy_to_vertex_ai(project_id: str, model_path: str, endpoint_name: str) -> str:
+    try:
+        log_step(logger, 'Model Deployment to Vertex AI', 'Serving')
+        
+        aiplatform.init(project=project_id)
+        
+        model = aiplatform.Model.upload(
+            display_name=endpoint_name,
+            artifact_uri=model_path,
+            serving_container_image_uri="us-docker.pkg.dev/vertex-ai/prediction/tf2-cpu.2-6:latest"
+        )
+        
+        endpoint = model.deploy(
+            machine_type="n1-standard-2",
+            min_replica_count=1,
+            max_replica_count=3,
+            accelerator_type=None,
+            accelerator_count=None
+        )
+        
+        logger.info(f"Model deployed to Vertex AI endpoint: {endpoint.resource_name}")
+        return (endpoint.resource_name, model.resource_name)
+    except Exception as e:
+        log_error(logger, e, 'Model Deployment to Vertex AI')
+        raise
 
 def setup_cloud_build_trigger(project_id, repo_name, branch_name):
     client = cloudbuild_v1.CloudBuildClient()

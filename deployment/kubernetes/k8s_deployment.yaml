@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: music-recommender
+  labels:
+    app: music-recommender
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: music-recommender
+  template:
+    metadata:
+      labels:
+        app: music-recommender
+    spec:
+      containers:
+      - name: music-recommender
+        image: gcr.io/your-project-id/music-recommender:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: GCP_PROJECT_ID
+          valueFrom:
+            configMapKeyRef:
+              name: music-recommender-config
+              key: GCP_PROJECT_ID
+        - name: GCS_BUCKET
+          valueFrom:
+            configMapKeyRef:
+              name: music-recommender-config
+              key: GCS_BUCKET
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: music-recommender-service
+spec:
+  selector:
+    app: music-recommender
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: music-recommender-config
+data:
+  GCP_PROJECT_ID: "your-project-id"
+  GCS_BUCKET: "your-gcs-bucket"

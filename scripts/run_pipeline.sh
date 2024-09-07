@@ -37,9 +37,9 @@ python deployment/vertex_ai/vertex_deployment.py \
     --image_url gcr.io/$GCP_PROJECT_ID/music-recommender:latest \
     --region $REGION
 
-# Step 5: Start Prometheus monitoring server
-echo "Starting Prometheus monitoring server..."
-python src/monitoring/pipeline_monitoring.py &
+# Step 5: Start Prometheus monitoring server (Optional)
+# echo "Starting Prometheus monitoring server..."
+# python src/monitoring/pipeline_monitoring.py &
 
 # Step 6: Set up Vertex AI monitoring
 echo "Setting up Vertex AI monitoring..."
