@@ -2,7 +2,7 @@ import argparse
 from typing import Tuple
 from google.cloud import aiplatform
 from google.cloud.devtools import cloudbuild_v1
-
+from google.protobuf import duration_pb2
 from google.cloud import run_v2
 from src.utils.logging_utils import setup_logger, log_error, log_step
 from vertex_ai_monitoring import monitor_and_log_rollbacks, monitor_and_trigger_retraining
@@ -94,15 +94,16 @@ def deploy_to_vertex_ai(project_id: str, model_path: str, endpoint_name: str, mo
         raise
 
 
-def setup_cloud_build_trigger(project_id: str, repo_name: str, branch_name: str, storage_bucket: str = None):
+def setup_cloud_build_trigger(project_id: str, repo_name: str, branch_name: str, storage_bucket: str = None, cooldown_period: int = 300):
     """
-    Set up a Cloud Build trigger for continuous training.
+    Set up a Cloud Build trigger for continuous training with cooldown period and build notifications.
     The trigger can monitor both code changes in the repository and new data in a Cloud Storage bucket.
     
     :param project_id: GCP Project ID
     :param repo_name: Name of the GitHub repository
     :param branch_name: Branch to monitor for changes (e.g., 'main')
-    :param storage_bucket: Optional. Name of the Cloud Storage bucket to monitor for new data (for retraining triggers).
+    :param storage_bucket: Optional. Name of the Cloud Storage bucket to monitor for new data (for retraining triggers)
+    :param cooldown_period: Cooldown period in seconds between triggers (default: 300 seconds)
     """
     client = cloudbuild_v1.CloudBuildClient()
     
@@ -121,16 +122,40 @@ def setup_cloud_build_trigger(project_id: str, repo_name: str, branch_name: str,
     )
     trigger.filename = "cloudbuild.yaml"
     
+    # Add cooldown period
+    trigger.build.options.machine_type = cloudbuild_v1.BuildOptions.MachineType.E2_HIGHCPU_8
+    trigger.build.options.substitution_option = cloudbuild_v1.BuildOptions.SubstitutionOption.ALLOW_LOOSE
+    trigger.build.options.dynamic_substitutions = True
+    
+    cooldown_duration = duration_pb2.Duration()
+    cooldown_duration.seconds = cooldown_period
+    trigger.build.options.polling_interval = cooldown_duration
+
     # Optional: Monitor for new data ingestion in the Cloud Storage bucket
     if storage_bucket:
-        # Add a notification filter for changes in the Cloud Storage bucket (retraining based on new data)
-        trigger.gcs = cloudbuild_v1.StorageSource(bucket=storage_bucket)
+
+        trigger.pubsub_config = cloudbuild_v1.PubsubConfig(
+            topic=f"projects/{project_id}/topics/{storage_bucket}-trigger",
+            subscription=f"projects/{project_id}/subscriptions/{storage_bucket}-trigger-sub"
+        )
+
+    # Set up build status notifications
+    trigger.build.options.logging = cloudbuild_v1.BuildOptions.LoggingMode.CLOUD_LOGGING_ONLY
+    trigger.build.options.requested_verify_option = cloudbuild_v1.BuildOptions.VerifyOption.VERIFIED
 
     # Create the Cloud Build trigger
     operation = client.create_build_trigger(project_id=project_id, trigger=trigger)
     result = operation.result()
     
+    # Set up notifications for build status
+    notification_config = cloudbuild_v1.NotificationConfig(
+        filter="build.status in (SUCCESS, FAILURE, INTERNAL_ERROR, TIMEOUT)",
+        pubsub_topic=f"projects/{project_id}/topics/cloud-builds"
+    )
+    client.update_build_trigger(project_id=project_id, trigger_id=result.id, trigger=trigger, update_mask={"paths": ["notification_config"]})
+    
     print(f"Cloud Build trigger created: {result.name}")
+    print("Build status notifications set up for successful and failed builds.")
     return result
 
 
@@ -171,6 +196,7 @@ if __name__ == '__main__':
     parser.add_argument('--image_url', required=True, help='Docker image URL for Cloud Run')
     parser.add_argument('--region', required=True, help='GCP region for deployment')
     parser.add_argument('--storage_bucket', required=True, help='Cloud Storage bucket to monitor for new data')
+    parser.add_argument('--cooldown_period', type=int, default=300, help='Cooldown period in seconds between triggers')
     
     args = parser.parse_args()
     
@@ -178,7 +204,7 @@ if __name__ == '__main__':
     endpoint = deploy_to_vertex_ai(args.project_id, args.model_path, args.endpoint_name)
     
     # Setup Cloud Build trigger
-    trigger = setup_cloud_build_trigger(args.project_id, args.repo_name, args.branch_name, args.storage_bucket)
+    trigger = setup_cloud_build_trigger(args.project_id, args.repo_name, args.branch_name, args.storage_bucket, args.cooldown_period)
     
     # Setup Cloud Run service
     service = setup_cloud_run(args.project_id, args.service_name, args.image_url, args.region)
