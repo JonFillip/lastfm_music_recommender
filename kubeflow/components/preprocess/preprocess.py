@@ -1,43 +1,60 @@
-import argparse
-import pandas as pd
-import numpy as np
-from sklearn.preprocessing import StandardScaler, MultiLabelBinarizer
-from sklearn.model_selection import train_test_split
+from kfp.v2.dsl import (
+    component,
+    Input,
+    Output,
+    Dataset,
+)
+from typing import NamedTuple
+from src.data_processing.data_preprocess import load_data, preprocess_data, impute_data
 from src.utils.logging_utils import get_logger
-from src.data_processing.data_preprocess import load_data, preprocess_data, split_data
 
-logger = get_logger('data_preprocessing')
+logger = get_logger('kubeflow_preprocess')
 
-def main(input_file_path, output_train_path, output_val_path, output_test_path):
+# Define the OutputSpec NamedTuple
+OutputSpec = NamedTuple('OutputSpec', [
+    ('num_samples', int),
+    ('num_features', int)
+])
+
+@component(
+    packages_to_install=['pandas', 'numpy', 'scikit-learn', 'scipy'],
+    base_image='python:3.9'
+)
+def preprocess(
+    input_data: Input[Dataset],
+    output_data: Output[Dataset],
+) -> OutputSpec:
+    import pandas as pd
+    
     try:
         # Load data
-        df = load_data(input_file_path)
+        df = load_data(input_data.path)
         
         # Preprocess data
-        df_processed, mlb = preprocess_data(df)
+        df_processed = preprocess_data(df)
+
+        # Impute data for missing values
+        imputed_data = impute_data(df_processed)
+        imputed_data.drop_duplicates(inplace=True)
+
+        # Save preprocessed data
+        imputed_data.to_csv(output_data.path, index=False)
+        logger.info(f"Preprocessed data saved to {output_data.path}")
         
-        # Split data
-        train, val, test = split_data(df_processed)
-        
-        # Save processed datasets
-        train.to_csv(output_train_path, index=False)
-        val.to_csv(output_val_path, index=False)
-        test.to_csv(output_test_path, index=False)
-        
-        logger.info(f"Preprocessed data saved to {output_train_path}, {output_val_path}, and {output_test_path}")
-        
-        return mlb  # Return the MultiLabelBinarizer for future use if needed
+        # Return number of samples and features
+        return OutputSpec(num_samples=len(imputed_data), num_features=len(imputed_data.columns))
+    
     except Exception as e:
-        logger.error(f"Error in preprocessing main function: {e}")
+        logger.error(f"Error in preprocessing: {e}")
         raise
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Preprocess data for music recommender')
-    parser.add_argument('--input_file', type=str, required=True, help='Path to the input data file')
-    parser.add_argument('--output_train', type=str, required=True, help='Path to save the preprocessed training data')
-    parser.add_argument('--output_val', type=str, required=True, help='Path to save the preprocessed validation data')
-    parser.add_argument('--output_test', type=str, required=True, help='Path to save the preprocessed test data')
+if __name__ == '__main__':
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Preprocess component for Kubeflow')
+    parser.add_argument('--input_data', type=str, help='Path to input dataset')
+    parser.add_argument('--output_data', type=str, help='Path to save the output dataset')
     
     args = parser.parse_args()
     
-    main(args.input_file, args.output_train, args.output_val, args.output_test)
+    preprocess(input_data=args.input_data, output_data=args.output_data)

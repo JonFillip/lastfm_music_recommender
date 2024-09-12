@@ -1,0 +1,59 @@
+name: Monitor Model
+description: Sets up monitoring for a Vertex AI model and performs drift detection
+
+inputs:
+  - {name: project_id, type: String}
+  - {name: model_name, type: String}
+  - {name: sampling_rate, type: Float}
+  - {name: config, type: Artifact}
+
+outputs:
+  - {name: data_drift_score, type: Float}
+  - {name: prediction_drift_score, type: Float}
+
+implementation:
+  container:
+    image: python:3.9
+    command:
+      - python
+      - -c
+      - |
+        from kubeflow.components.monitoring.monitor import monitor_model
+        import argparse
+
+        parser = argparse.ArgumentParser(description='Monitor model component for Kubeflow')
+        parser.add_argument('--project_id', type=str, required=True)
+        parser.add_argument('--model_name', type=str, required=True)
+        parser.add_argument('--sampling_rate', type=float, default=1.0)
+        parser.add_argument('--config', type=str, required=True)
+        args = parser.parse_args()
+
+        outputs = monitor_model(
+            project_id=args.project_id,
+            model_name=args.model_name,
+            sampling_rate=args.sampling_rate,
+            config=args.config,
+        )
+
+        print(f"Data drift score: {outputs.data_drift_score}")
+        print(f"Prediction drift score: {outputs.prediction_drift_score}")
+
+        # Write outputs
+        with open('/tmp/data_drift_score.txt', 'w') as f:
+            f.write(str(outputs.data_drift_score))
+        with open('/tmp/prediction_drift_score.txt', 'w') as f:
+            f.write(str(outputs.prediction_drift_score))
+
+    args:
+      - --project_id
+      - {inputValue: project_id}
+      - --model_name
+      - {inputValue: model_name}
+      - --sampling_rate
+      - {inputValue: sampling_rate}
+      - --config
+      - {inputPath: config}
+      - --data_drift_score
+      - {outputPath: data_drift_score}
+      - --prediction_drift_score
+      - {outputPath: prediction_drift_score}

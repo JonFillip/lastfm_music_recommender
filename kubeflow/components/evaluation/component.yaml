@@ -1,22 +1,59 @@
-name: Model Evaluation
-description: Evaluates the trained music recommender model
+name: Evaluate Model
+description: Evaluates the trained model using various metrics and generates evaluation plots
+
 inputs:
-  - {name: model_path, type: Model, description: 'Path to the trained model'}
-  - {name: test_data_path, type: Dataset, description: 'Path to the test data'}
-  - {name: config_path, type: String, description: 'Path to the configuration file'}
+  - {name: model, type: Model, description: 'Trained model to evaluate'}
+  - {name: test_data, type: Dataset, description: 'Test dataset for evaluation'}
+  - {name: item_popularity, type: Dataset, description: 'Item popularity data for novelty calculation'}
+
 outputs:
-  - {name: evaluation_results, type: JsonObject, description: 'Evaluation metrics'}
+  - {name: evaluation_results, type: Metrics, description: 'Evaluation results including various metrics'}
+  - {name: evaluation_plots, type: Dataset, description: 'Evaluation plots and visualizations'}
+  - {name: mean_average_precision, type: Float, description: 'Mean Average Precision score'}
+
 implementation:
   container:
-    image: your-docker-registry/music-recommender:latest
+    image: python:3.9
     command:
       - python
-      - evaluation.py
-      - --model_path
-      - {inputPath: model_path}
-      - --test_data_path
-      - {inputPath: test_data_path}
-      - --config_path
-      - {inputPath: config_path}
-      - --output_path
+      - -c
+      - |
+        from kubeflow.components.evaluation.evaluation import evaluate_model
+        import argparse
+
+        parser = argparse.ArgumentParser(description='Evaluate model component for Kubeflow')
+        parser.add_argument('--model', type=str)
+        parser.add_argument('--test_data', type=str)
+        parser.add_argument('--item_popularity', type=str)
+        parser.add_argument('--evaluation_results', type=str)
+        parser.add_argument('--evaluation_plots', type=str)
+        parser.add_argument('--mean_average_precision', type=str)
+        args = parser.parse_args()
+
+        map_score = evaluate_model(
+            model=args.model,
+            test_data=args.test_data,
+            item_popularity=args.item_popularity,
+            evaluation_results=args.evaluation_results,
+            evaluation_plots=args.evaluation_plots
+        )
+        
+        print(f"Mean Average Precision: {map_score}")
+
+        # Write MAP score
+        with open(args.mean_average_precision, 'w') as f:
+            f.write(str(map_score))
+
+    args:
+      - --model
+      - {inputPath: model}
+      - --test_data
+      - {inputPath: test_data}
+      - --item_popularity
+      - {inputPath: item_popularity}
+      - --evaluation_results
       - {outputPath: evaluation_results}
+      - --evaluation_plots
+      - {outputPath: evaluation_plots}
+      - --mean_average_precision
+      - {outputPath: mean_average_precision}

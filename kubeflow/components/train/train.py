@@ -1,36 +1,82 @@
-import argparse
-import os
-from src.algorithms.content_based import ContentBasedRecommender
-from src.utils.logging_utils import setup_logging
-from src.utils.model_utils import save_model
+from kfp.v2.dsl import (
+    component,
+    Input,
+    Output,
+    Dataset,
+    Model,
+    Metrics,
+)
+from src.algorithms.content_based import main as train_content_based
+from src.utils.logging_utils import get_logger
 
-logger = setup_logging()
+logger = get_logger('kubeflow_train')
 
-def train_model(data_path, model_path, hyperparameters):
-    logger.info("Starting model training")
+@component(
+    packages_to_install=['tensorflow', 'numpy', 'pandas', 'scikit-learn'],
+    base_image='python:3.9'
+)
+def train_model(
+    train_data: Input[Dataset],
+    val_data: Input[Dataset],
+    best_hyperparameters: Input[Dataset],
+    model: Output[Model],
+    metrics: Output[Metrics]
+) -> float:
+    import json
+    import pandas as pd
     
-    # Load data
-    # Assume data is loaded and preprocessed here
+    try:
+        # Load hyperparameters
+        with open(best_hyperparameters.path, 'r') as f:
+            hyperparams = json.load(f)
+        
+        # Load data
+        train_df = pd.read_csv(train_data.path)
+        val_df = pd.read_csv(val_data.path)
+        
+        # Train model
+        trained_model, model_metrics = train_content_based(
+            train_df,
+            val_df,
+            hidden_layers=int(hyperparams['hidden_layers']),
+            neurons=int(hyperparams['neurons']),
+            embedding_dim=int(hyperparams['embedding_dim']),
+            learning_rate=float(hyperparams['learning_rate']),
+            batch_size=int(hyperparams['batch_size']),
+            dropout_rate=float(hyperparams['dropout_rate'])
+        )
+        
+        # Save model
+        trained_model.save(model.path)
+        logger.info(f"Model saved to {model.path}")
+        
+        # Save metrics
+        with open(metrics.path, 'w') as f:
+            json.dump(model_metrics, f)
+        logger.info(f"Metrics saved to {metrics.path}")
+        
+        return model_metrics['val_cosine_similarity']
     
-    # Initialize and train the model
-    model = ContentBasedRecommender(**hyperparameters)
-    model.fit(data)
-    
-    # Save the model
-    save_model(model, model_path)
-    
-    logger.info(f"Model training completed. Model saved at {model_path}")
+    except Exception as e:
+        logger.error(f"Error in training: {e}")
+        raise
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Train the music recommender model')
-    parser.add_argument('--data_path', type=str, required=True, help='Path to the preprocessed data')
-    parser.add_argument('--model_path', type=str, required=True, help='Path to save the trained model')
-    parser.add_argument('--hyperparameters', type=str, required=True, help='JSON string of hyperparameters')
+if __name__ == '__main__':
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Train model component for Kubeflow')
+    parser.add_argument('--train_data', type=str, help='Path to training dataset')
+    parser.add_argument('--val_data', type=str, help='Path to validation dataset')
+    parser.add_argument('--best_hyperparameters', type=str, help='Path to best hyperparameters')
+    parser.add_argument('--model', type=str, help='Path to save the trained model')
+    parser.add_argument('--metrics', type=str, help='Path to save the model metrics')
     
     args = parser.parse_args()
     
-    # Convert hyperparameters from JSON string to dictionary
-    import json
-    hyperparameters = json.loads(args.hyperparameters)
-    
-    train_model(args.data_path, args.model_path, hyperparameters)
+    train_model(
+        train_data=args.train_data,
+        val_data=args.val_data,
+        best_hyperparameters=args.best_hyperparameters,
+        model=args.model,
+        metrics=args.metrics
+    )

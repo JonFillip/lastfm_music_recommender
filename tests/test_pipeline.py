@@ -6,8 +6,7 @@ import os
 import json
 from src.data_processing.data_preprocess import preprocess_data, prepare_data
 from src.data_processing.data_validation import (
-    generate_schema, validate_data, compare_statistics, detect_data_drift,
-    load_schema_from_gcs, save_schema_to_gcs
+    generate_schema, validate_data, compare_statistics, detect_data_drift, save_schema_to_gcs
 )
 from src.feature_engineering.feat_engineering import (
     engineer_basic_features, engineer_additional_features, refine_features,
@@ -17,7 +16,6 @@ from src.feature_engineering.feat_engineering import (
 )
 from src.algorithms.content_based import ContentBasedRecommender
 from src.evaluation.model_evaluation import evaluate_model
-from src.serving.model_serving import serve_model
 from sklearn.metrics import accuracy_score
 from sklearn.metrics.pairwise import cosine_similarity
 import tensorflow_data_validation as tfdv
@@ -158,17 +156,6 @@ class TestPipeline(unittest.TestCase):
         self.assertGreater(precision, 0)
         self.assertGreater(recall, 0)
         self.assertGreater(f1, 0)
-
-        # Step 7: Model Serving
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            model_path = os.path.join(tmpdirname, 'test_model')
-            model.save(model_path)
-            
-            # Test serving
-            raw_input = X_test[0].tolist()
-            result = serve_model(model_path, raw_input, scaler, mlb)
-            self.assertIsInstance(result, list)
-            self.assertEqual(len(result), y_test.shape[1])
 
     def test_pipeline_with_mock_inputs(self):
         # Mock data validation

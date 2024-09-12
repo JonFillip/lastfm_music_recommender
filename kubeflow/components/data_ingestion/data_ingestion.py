@@ -1,29 +1,51 @@
-import argparse
-import os
-from src.data_processing.data_ingestion import fetch_lastfm_data, configure_lastfm_api
+from kfp.v2.dsl import (
+    component,
+    Output,
+    Dataset,
+)
+from typing import NamedTuple
+from src.data_processing.data_ingestion import configure_lastfm_api, fetch_lastfm_data
 from src.utils.logging_utils import get_logger
 
-logger = get_logger('data_ingestion_component')
+logger = get_logger('kubeflow_data_ingestion')
 
-def main(api_key: str, limit: int, output_csv: str):
+# Define the OutputSpec NamedTuple
+OutputSpec = NamedTuple('OutputSpec', [('num_tracks', int)])
+
+@component(
+    packages_to_install=['pylast', 'python-dotenv', 'pandas', 'requests'],
+    base_image='python:3.9'
+)
+def data_ingestion(
+    output_path: Output[Dataset],
+    limit: int = 5000,
+) -> OutputSpec:
+    import os
+    import pandas as pd
+    
     try:
+        api_key, _ = configure_lastfm_api()
         df = fetch_lastfm_data(api_key, limit=limit)
+        
         if not df.empty:
             logger.info(f"Successfully fetched {len(df)} tracks from Last.fm")
-            df.to_csv(output_csv, index=False)
-            logger.info(f"Data saved to {output_csv}")
+            df.to_csv(output_path.path, index=False)
+            logger.info(f"Data saved to {output_path.path}")
+            return (len(df),)
         else:
             logger.error("Failed to fetch data, DataFrame is empty")
+            return (0,)
     except Exception as e:
-        logger.error(f"Error in main function: {e}")
+        logger.error(f"Error in data ingestion: {e}")
+        raise
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Data Ingestion Component')
-    parser.add_argument('--api_key', type=str, required=True, help='Last.fm API key')
-    parser.add_argument('--limit', type=str, default='5000', help='Number of tracks to fetch')
-    parser.add_argument('--output_csv', type=str, required=True, help='Path to save the output CSV')
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Data ingestion component for Kubeflow')
+    parser.add_argument('--output_path', type=str, help='Path to save the output dataset')
+    parser.add_argument('--limit', type=int, default=5000, help='Number of tracks to fetch')
     
     args = parser.parse_args()
-    limit = int(args.limit)
     
-    main(args.api_key, limit, args.output_csv)
+    data_ingestion(output_path=args.output_path, limit=args.limit)

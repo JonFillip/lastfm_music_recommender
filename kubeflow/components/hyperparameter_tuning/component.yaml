@@ -1,22 +1,49 @@
 name: Hyperparameter Tuning
-description: Runs hyperparameter tuning for the music recommender model using Katib
+description: Performs hyperparameter tuning using Katib
+
 inputs:
-  - {name: train_data, type: Dataset, description: 'Path to the training data'}
-  - {name: val_data, type: Dataset, description: 'Path to the validation data'}
-  - {name: config_path, type: String, description: 'Path to the configuration file'}
+  - {name: train_data, type: Dataset, description: 'Training dataset'}
+  - {name: val_data, type: Dataset, description: 'Validation dataset'}
+
 outputs:
-  - {name: optimal_hyperparameters, type: JsonObject, description: 'Optimal hyperparameters found by Katib'}
+  - {name: best_hyperparameters, type: Dataset, description: 'Best hyperparameters found'}
+  - {name: best_val_cosine_similarity, type: Float, description: 'Best validation cosine similarity achieved'}
+
 implementation:
   container:
-    image: your-docker-registry/music-recommender:latest
+    image: python:3.9
     command:
       - python
-      - hyperparameter_tuning.py
+      - -c
+      - |
+        from kubeflow.components.hyperparameter_tuning.hyperparameter_tuning import hyperparameter_tuning
+        import argparse
+
+        parser = argparse.ArgumentParser(description='Hyperparameter tuning component for Kubeflow')
+        parser.add_argument('--train_data', type=str)
+        parser.add_argument('--val_data', type=str)
+        parser.add_argument('--best_hyperparameters', type=str)
+        parser.add_argument('--best_val_cosine_similarity', type=str)
+        args = parser.parse_args()
+
+        outputs = hyperparameter_tuning(
+            train_data=args.train_data,
+            val_data=args.val_data,
+            best_hyperparameters=args.best_hyperparameters
+        )
+        
+        print(f"Best validation cosine similarity: {outputs.best_val_cosine_similarity}")
+
+        # Write output
+        with open(args.best_val_cosine_similarity, 'w') as f:
+            f.write(str(outputs.best_val_cosine_similarity))
+
+    args:
       - --train_data
       - {inputPath: train_data}
       - --val_data
       - {inputPath: val_data}
-      - --config_path
-      - {inputPath: config_path}
-      - --output_path
-      - {outputPath: optimal_hyperparameters}
+      - --best_hyperparameters
+      - {outputPath: best_hyperparameters}
+      - --best_val_cosine_similarity
+      - {outputPath: best_val_cosine_similarity}

@@ -1,22 +1,48 @@
 name: Preprocess Data
 description: Preprocesses the input data for the music recommender system
+
 inputs:
-  - {name: input_file, type: String, description: 'Path to the input data file'}
+  - {name: input_data, type: Dataset, description: 'Input dataset to preprocess'}
+
 outputs:
-  - {name: output_train, type: Dataset, description: 'Preprocessed training data'}
-  - {name: output_val, type: Dataset, description: 'Preprocessed validation data'}
-  - {name: output_test, type: Dataset, description: 'Preprocessed test data'}
+  - {name: output_data, type: Dataset, description: 'Preprocessed output dataset'}
+  - {name: num_samples, type: Integer, description: 'Number of samples in the preprocessed dataset'}
+  - {name: num_features, type: Integer, description: 'Number of features in the preprocessed dataset'}
+
 implementation:
   container:
-    image: your-docker-registry/music-recommender:latest
+    image: python:3.9
     command:
       - python
-      - preprocess.py
-      - --input_file
-      - {inputPath: input_file}
-      - --output_train
-      - {outputPath: output_train}
-      - --output_val
-      - {outputPath: output_val}
-      - --output_test
-      - {outputPath: output_test}
+      - -c
+      - |
+        from kubeflow.components.preprocess.preprocess import preprocess
+        import argparse
+
+        parser = argparse.ArgumentParser(description='Preprocess component for Kubeflow')
+        parser.add_argument('--input_data', type=str)
+        parser.add_argument('--output_data', type=str)
+        parser.add_argument('--num_samples', type=str)
+        parser.add_argument('--num_features', type=str)
+        args = parser.parse_args()
+
+        outputs = preprocess(input_data=args.input_data, output_data=args.output_data)
+        
+        print(f"Number of samples: {outputs.num_samples}")
+        print(f"Number of features: {outputs.num_features}")
+
+        # Write outputs
+        with open(args.num_samples, 'w') as f:
+            f.write(str(outputs.num_samples))
+        with open(args.num_features, 'w') as f:
+            f.write(str(outputs.num_features))
+
+    args:
+      - --input_data
+      - {inputPath: input_data}
+      - --output_data
+      - {outputPath: output_data}
+      - --num_samples
+      - {outputPath: num_samples}
+      - --num_features
+      - {outputPath: num_features}

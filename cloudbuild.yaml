@@ -1,35 +1,42 @@
 steps:
-# Build and push Docker image to Container Registry
-- name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-t', 'gcr.io/$PROJECT_ID/music-recommender:$COMMIT_SHA', '--push', '.']
+  # Build and push Docker image to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/music-recommender:$COMMIT_SHA', '--push', '.']
 
-# Deploy to Cloud Run
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  entrypoint: gcloud
-  args:
-  - 'run'
-  - 'deploy'
-  - 'music-recommender'
-  - '--image'
-  - 'gcr.io/$PROJECT_ID/music-recommender:$COMMIT_SHA'
-  - '--region'
-  - '${_REGION}'
-  - '--platform'
-  - 'managed'
+  # Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+    - 'run'
+    - 'deploy'
+    - 'music-recommender'
+    - '--image'
+    - 'gcr.io/$PROJECT_ID/music-recommender:$COMMIT_SHA'
+    - '--region'
+    - '${_REGION}'
+    - '--platform'
+    - 'managed'
 
-# Deploy pipeline to Vertex AI
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  entrypoint: /bin/bash
-  args:
-  - '-c'
-  - |
-    python deployment/deploy_pipeline.py --platform vertex --project_id $PROJECT_ID --region ${_REGION} --output_file pipeline.yaml
+  # Deploy pipeline to Vertex AI
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: /bin/bash
+    args:
+    - '-c'
+    - |
+      python deployment/deploy_pipeline.py --platform vertex --project_id $PROJECT_ID --region ${_REGION} --output_file pipeline.yaml
+
+# Add step for triggering retraining if needed
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: /bin/bash
+    args:
+    - '-c'
+    - |
+      python vertex_ai_monitoring.py --project_id $PROJECT_ID --model_name 'your_model_name' --gcs_input 'gs://your_project/data/' --pipeline_name 'your_pipeline_name' --notification_channel 'your_channel'
 
 images:
-- 'gcr.io/$PROJECT_ID/music-recommender:$COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/music-recommender:$COMMIT_SHA'
 
 substitutions:
   _REGION: us-central1  # default region, can be overridden
 
-# Optionally add logging
 logsBucket: gs://$PROJECT_ID-cloudbuild-logs

@@ -1,22 +1,61 @@
-name: Feature Engineering Data
-description: Engineers new features from the output preprocess component for the music recommender system
+name: Feature Engineering
+description: Performs feature engineering on the preprocessed data
+
 inputs:
-  - {name: input_file, type: String, description: 'Path to the input data file'}
+  - {name: input_data, type: Dataset, description: 'Input dataset to perform feature engineering on'}
+  - {name: n_components, type: Integer, default: "4000", description: 'Number of components for dimensionality reduction'}
+
 outputs:
-  - {name: output_train, type: Dataset, description: 'Preprocessed vectorized data'}
-  - {name: output_val, type: Dataset, description: 'feature importance data'}
-  - {name: output_test, type: Dataset, description: 'Preprocessed test data'}
+  - {name: output_data, type: Dataset, description: 'Output dataset with engineered features'}
+  - {name: output_preprocessor, type: Model, description: 'Saved preprocessor model'}
+  - {name: num_features, type: Integer, description: 'Number of features after engineering'}
+  - {name: explained_variance_ratio, type: Float, description: 'Explained variance ratio after dimensionality reduction'}
+
 implementation:
   container:
-    image: your-docker-registry/music-recommender:latest
+    image: python:3.9
     command:
       - python
-      - feature_eng.py
-      - --input_file
-      - {inputPath: input_file}
-      - --output_train
-      - {outputPath: output_train}
-      - --output_val
-      - {outputPath: output_val}
-      - --output_test
-      - {outputPath: output_test}
+      - -c
+      - |
+        from kubeflow.components.feature_engineering.feature_eng import feature_engineering
+        import argparse
+
+        parser = argparse.ArgumentParser(description='Feature engineering component for Kubeflow')
+        parser.add_argument('--input_data', type=str)
+        parser.add_argument('--output_data', type=str)
+        parser.add_argument('--output_preprocessor', type=str)
+        parser.add_argument('--n_components', type=int, default=4000)
+        parser.add_argument('--num_features', type=str)
+        parser.add_argument('--explained_variance_ratio', type=str)
+        args = parser.parse_args()
+
+        outputs = feature_engineering(
+            input_data=args.input_data,
+            output_data=args.output_data,
+            output_preprocessor=args.output_preprocessor,
+            n_components=args.n_components
+        )
+        
+        print(f"Number of features: {outputs.num_features}")
+        print(f"Explained variance ratio: {outputs.explained_variance_ratio}")
+
+        # Write outputs
+        with open(args.num_features, 'w') as f:
+            f.write(str(outputs.num_features))
+        with open(args.explained_variance_ratio, 'w') as f:
+            f.write(str(outputs.explained_variance_ratio))
+
+    args:
+      - --input_data
+      - {inputPath: input_data}
+      - --output_data
+      - {outputPath: output_data}
+      - --output_preprocessor
+      - {outputPath: output_preprocessor}
+      - --n_components
+      - {inputValue: n_components}
+      - --num_features
+      - {outputPath: num_features}
+      - --explained_variance_ratio
+      - {outputPath: explained_variance_ratio}

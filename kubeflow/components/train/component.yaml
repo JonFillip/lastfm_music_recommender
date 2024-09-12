@@ -1,20 +1,59 @@
 name: Train Model
-description: Trains the music recommender model
+description: Trains the content-based recommender model using the best hyperparameters
+
 inputs:
-  - {name: data_path, type: String, description: 'Path to the preprocessed data'}
-  - {name: model_path, type: String, description: 'Path to save the trained model'}
-  - {name: hyperparameters, type: String, description: 'JSON string of hyperparameters'}
+  - {name: train_data, type: Dataset, description: 'Training dataset'}
+  - {name: val_data, type: Dataset, description: 'Validation dataset'}
+  - {name: best_hyperparameters, type: Dataset, description: 'Best hyperparameters from tuning'}
+
 outputs:
   - {name: model, type: Model, description: 'Trained model'}
+  - {name: metrics, type: Metrics, description: 'Model metrics'}
+  - {name: val_cosine_similarity, type: Float, description: 'Validation cosine similarity'}
+
 implementation:
   container:
-    image: your-docker-registry/music-recommender:latest
+    image: python:3.9
     command:
       - python
-      - train.py
-      - --data_path
-      - {inputValue: data_path}
-      - --model_path
+      - -c
+      - |
+        from kubeflow.components.train.train import train_model
+        import argparse
+
+        parser = argparse.ArgumentParser(description='Train model component for Kubeflow')
+        parser.add_argument('--train_data', type=str)
+        parser.add_argument('--val_data', type=str)
+        parser.add_argument('--best_hyperparameters', type=str)
+        parser.add_argument('--model', type=str)
+        parser.add_argument('--metrics', type=str)
+        parser.add_argument('--val_cosine_similarity', type=str)
+        args = parser.parse_args()
+
+        val_cosine_similarity = train_model(
+            train_data=args.train_data,
+            val_data=args.val_data,
+            best_hyperparameters=args.best_hyperparameters,
+            model=args.model,
+            metrics=args.metrics
+        )
+        
+        print(f"Validation cosine similarity: {val_cosine_similarity}")
+
+        # Write output
+        with open(args.val_cosine_similarity, 'w') as f:
+            f.write(str(val_cosine_similarity))
+
+    args:
+      - --train_data
+      - {inputPath: train_data}
+      - --val_data
+      - {inputPath: val_data}
+      - --best_hyperparameters
+      - {inputPath: best_hyperparameters}
+      - --model
       - {outputPath: model}
-      - --hyperparameters
-      - {inputValue: hyperparameters}
+      - --metrics
+      - {outputPath: metrics}
+      - --val_cosine_similarity
+      - {outputPath: val_cosine_similarity}

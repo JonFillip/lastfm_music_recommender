@@ -120,6 +120,47 @@ def detect_data_drift(train_stats: tfdv.types.DatasetFeatureStatisticsList,
         log_error(logger, e, 'Data Drift Detection')
         raise
 
+def compare_schemas(baseline_schema: tfdv.types.Schema, current_schema: tfdv.types.Schema) -> bool:
+    """
+    Compares the baseline schema with the current schema and detects schema drift.
+    Logs any detected schema drift and returns a boolean indicating whether schema drift was detected.
+    """
+    try:
+        log_step(logger, 'Comparing Schemas', 'Schema Drift Detection')
+        
+        schema_drift_detected = False
+
+        # Check for missing or new features
+        baseline_feature_names = {feature.name for feature in baseline_schema.feature}
+        current_feature_names = {feature.name for feature in current_schema.feature}
+
+        # Features present in baseline but missing in current data
+        missing_features = baseline_feature_names - current_feature_names
+        for feature in missing_features:
+            logger.warning(f"Schema drift detected: Feature '{feature}' is missing from the current data.")
+            schema_drift_detected = True
+
+        # Features present in current data but not in baseline
+        new_features = current_feature_names - baseline_feature_names
+        for feature in new_features:
+            logger.warning(f"Schema drift detected: New feature '{feature}' found in the current data.")
+            schema_drift_detected = True
+
+        # Check for changes in feature types
+        for feature in baseline_schema.feature:
+            if feature.name in current_feature_names:
+                current_feature = next(f for f in current_schema.feature if f.name == feature.name)
+                if feature.type != current_feature.type:
+                    logger.warning(f"Schema drift detected: Feature '{feature.name}' type changed from {feature.type} to {current_feature.type}.")
+                    schema_drift_detected = True
+
+        return schema_drift_detected
+
+    except Exception as e:
+        log_error(logger, e, 'Schema Drift Detection')
+        return False  # In case of an error, return False to indicate no schema drift detected
+
+
 def main(train_data_path: str, serving_data_path: str, bucket_name: str, model_name: str):
     try:
         config = load_config()

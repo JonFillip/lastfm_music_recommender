@@ -55,4 +55,14 @@ hyperparameter_tuning:
 monitoring:
   metric_export_interval: 60  # in seconds
   alert_threshold:
-    accuracy_drop: 0.05
+    accuracy_drop: 0.05  # If accuracy drops by 5%, retrain the model
+    data_drift: 0.1      # Trigger retraining if data drift exceeds 10%
+    prediction_drift: 0.1  # Retrain if prediction drift exceeds 10%
+
+retraining:
+  pipeline_name: 'your_pipeline_name'
+  gcs_input: 'gs://your_project/data/'
+  trigger_conditions:
+    - accuracy_drop
+    - data_drift
+    - prediction_drift

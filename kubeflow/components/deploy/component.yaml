@@ -1,20 +1,22 @@
-name: Deploy Model
-description: Deploys a trained model to Vertex AI and optionally sets up CI/CD
+name: Deploy Model with Canary Strategy and Rollback
+description: Deploys a trained model to Vertex AI with a canary deployment strategy, and automatically rolls back if deployment fails.
 
 inputs:
-  - {name: project_id, type: String}
-  - {name: model_path, type: Model}
-  - {name: endpoint_name, type: String}
-  - {name: repo_name, type: String, optional: true}
-  - {name: branch_name, type: String, optional: true}
-  - {name: service_name, type: String, optional: true}
-  - {name: image_url, type: String, optional: true}
-  - {name: region, type: String, default: "us-central1"}
-  - {name: setup_ci_cd, type: Boolean, default: "false"}
+  - {name: project_id, type: String, description: GCP Project ID}
+  - {name: model_path, type: Model, description: Path to the trained model artifacts}
+  - {name: model_name, type: String, description: Name of the model to be deployed}
+  - {name: endpoint_name, type: String, description: Name of the Vertex AI endpoint}
+  - {name: repo_name, type: String, optional: true, description: GitHub repository name for CI/CD setup}
+  - {name: branch_name, type: String, optional: true, description: GitHub branch name for CI/CD setup}
+  - {name: service_name, type: String, optional: true, description: Cloud Run service name}
+  - {name: image_url, type: String, optional: true, description: Docker image URL for Cloud Run}
+  - {name: region, type: String, default: "us-central1", description: GCP region for deployment}
+  - {name: setup_ci_cd, type: Boolean, default: "false", description: Whether to set up a CI/CD pipeline}
+  - {name: canary_traffic_percent, type: Integer, default: "10", description: Percentage of traffic to route to the new model during a canary deployment (0-100)}
 
 outputs:
-  - {name: endpoint, type: String,description: 'vertex ai endpoint'}
-  - {name: model, type: String,description: 'model path'}
+  - {name: endpoint, type: String, description: The Vertex AI endpoint to which the model is deployed}
+  - {name: model, type: String, description: The deployed model information}
 
 implementation:
   container:
@@ -23,46 +25,47 @@ implementation:
       - python
       - -c
       - |
-        from kubeflow.components.deploy.deploy import deploy_model
+        from deployment.deploy import deploy_model
         import argparse
 
-        # Parse input arguments
-        parser = argparse.ArgumentParser()
-        parser.add_argument('--project_id', type=str, required=True)
-        parser.add_argument('--model_path', type=str, required=True)
-        parser.add_argument('--endpoint_name', type=str, required=True)
-        parser.add_argument('--repo_name', type=str, default='')
-        parser.add_argument('--branch_name', type=str, default='')
-        parser.add_argument('--service_name', type=str, default='')
-        parser.add_argument('--image_url', type=str, default='')
-        parser.add_argument('--region', type=str, default='us-central1')
-        parser.add_argument('--setup_ci_cd', type=bool, default=False)
+        parser = argparse.ArgumentParser(description='Deploy model component for Kubeflow')
+        parser.add_argument('--project_id', required=True, help='GCP Project ID')
+        parser.add_argument('--model_path', required=True, help='Path to the model artifacts')
+        parser.add_argument('--model_name', required=True, help='Name for the deployed model')
+        parser.add_argument('--endpoint_name', required=True, help='Name for the Vertex AI endpoint')
+        parser.add_argument('--setup_ci_cd', action='store_true', help='Set up CI/CD pipeline')
+        parser.add_argument('--repo_name', help='GitHub repository name')
+        parser.add_argument('--branch_name', help='GitHub branch name')
+        parser.add_argument('--service_name', help='Cloud Run service name')
+        parser.add_argument('--image_url', help='Docker image URL for Cloud Run')
+        parser.add_argument('--region', default='us-central1', help='GCP region for deployment')
+        parser.add_argument('--canary_traffic_percent', type=int, default=10, help='Percentage of traffic to route to the new model')
+
         args = parser.parse_args()
 
-        # Call the deploy_model function
-        endpoint, model = deploy_model(
+        deploy_model(
             project_id=args.project_id,
             model_path=args.model_path,
+            model_name=args.model_name,
             endpoint_name=args.endpoint_name,
             repo_name=args.repo_name,
             branch_name=args.branch_name,
             service_name=args.service_name,
             image_url=args.image_url,
             region=args.region,
-            setup_ci_cd=args.setup_ci_cd
+            setup_ci_cd=args.setup_ci_cd,
+            canary_traffic_percent=args.canary_traffic_percent,
+            output_val='/tmp/endpoint.txt',
+            output_test='/tmp/model.txt'
         )
-
-        # Write outputs
-        with open('/tmp/endpoint.txt', 'w') as f:
-            f.write(endpoint)
-        with open('/tmp/model.txt', 'w') as f:
-            f.write(model)
 
     args:
       - --project_id
       - {inputValue: project_id}
       - --model_path
       - {inputPath: model_path}
+      - --model_name
+      - {inputValue: model_name}
       - --endpoint_name
       - {inputValue: endpoint_name}
       - --repo_name
@@ -77,6 +80,8 @@ implementation:
       - {inputValue: region}
       - --setup_ci_cd
       - {inputValue: setup_ci_cd}
+      - --canary_traffic_percent
+      - {inputValue: canary_traffic_percent}
       - --output_val
       - {outputPath: endpoint}
       - --output_test

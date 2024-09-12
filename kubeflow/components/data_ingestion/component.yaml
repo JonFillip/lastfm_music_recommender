@@ -1,19 +1,40 @@
 name: Data Ingestion
-description: Ingests data from Last.fm API
+description: Fetches top tracks data from Last.fm API
+
 inputs:
-- {name: api_key, type: String}
-- {name: limit, type: String, default: '5000'}
+  - {name: limit, type: Integer, default: "5000", description: 'Number of tracks to fetch'}
+
 outputs:
-- {name: output_csv, type: String}
+  - {name: output_dataset, type: Dataset, description: 'Output dataset containing fetched tracks'}
+  - {name: num_tracks, type: Integer, description: 'Number of tracks fetched'}
+
 implementation:
   container:
-    image: your-docker-registry/music-recommender:latest
+    image: python:3.9
     command:
-    - python
-    - /app/kubeflow/components/data_ingestion/data_ingestion.py
-    - --api_key
-    - {inputValue: api_key}
-    - --limit
-    - {inputValue: limit}
-    - --output_csv
-    - {outputPath: output_csv}
+      - python
+      - -c
+      - |
+        from kubeflow.components.data_ingestion.data_ingestion import data_ingestion
+        import argparse
+
+        parser = argparse.ArgumentParser(description='Data ingestion component for Kubeflow')
+        parser.add_argument('--limit', type=int, default=5000)
+        parser.add_argument('--output_dataset', type=str)
+        args = parser.parse_args()
+
+        outputs = data_ingestion(output_path=args.output_dataset, limit=args.limit)
+        
+        print(f"Number of tracks fetched: {outputs.num_tracks}")
+
+        # Write output
+        with open('/tmp/num_tracks.txt', 'w') as f:
+            f.write(str(outputs.num_tracks))
+
+    args:
+      - --limit
+      - {inputValue: limit}
+      - --output_dataset
+      - {outputPath: output_dataset}
+      - --num_tracks
+      - {outputPath: num_tracks}
