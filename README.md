@@ -104,7 +104,7 @@ This script will:
 - Submit the pipeline for execution
 - Wait for the pipeline to complete
 - Deploy the model to Vertex AI
-- Set up Vertex AI monitoring (Start the Prometheus monitoring server)
+- Set up Vertex AI monitoring (Start the Prometheus monitoring server if deploying to a Kubernetes environment)
 
 ## Manual Deployment
 
