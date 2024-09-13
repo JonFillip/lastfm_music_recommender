@@ -64,5 +64,6 @@ substitutions:
   _TRIGGER_ID: 'your-cloud-build-trigger-id'
   _NOTIFICATION_CHANNEL: 'your-notification-channel-id'
   _PIPELINE_NAME: 'your-pipeline-name'
+  _CANARY_TRAFFIC_PERCENT: '10'
 
 logsBucket: gs://$PROJECT_ID-cloudbuild-logs
