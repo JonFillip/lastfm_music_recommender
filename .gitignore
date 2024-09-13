@@ -106,6 +106,7 @@ venv.bak/
 .vs/
 .vscode/
 .pytest_cache/
+.DS_Store
 
 # Google API Keys
 /secret_manager

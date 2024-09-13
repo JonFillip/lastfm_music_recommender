@@ -1,6 +1,9 @@
 import argparse
+import time
+import base64
+import os
 from typing import Tuple
-from google.cloud import aiplatform
+from google.cloud import aiplatform, pubsub_v1
 from google.cloud.devtools import cloudbuild_v1
 from google.protobuf import duration_pb2
 from google.cloud import run_v2
@@ -8,6 +11,12 @@ from src.utils.logging_utils import setup_logger, log_error, log_step
 from vertex_ai_monitoring import monitor_and_log_rollbacks, monitor_and_trigger_retraining
 
 logger = setup_logger('vertex_ai_deployment')
+
+# Set your cooldown period (e.g., 5 minutes = 300 seconds)
+COOLDOWN_PERIOD = 300  # Cooldown period in seconds
+
+# Global variable to store the last build trigger timestamp
+LAST_TRIGGER_TIME = 0
 
 def deploy_to_vertex_ai(project_id: str, model_path: str, endpoint_name: str, model_name: str, canary_traffic_percent: int = 10) -> Tuple[str, str]:
     """
@@ -94,69 +103,107 @@ def deploy_to_vertex_ai(project_id: str, model_path: str, endpoint_name: str, mo
         raise
 
 
-def setup_cloud_build_trigger(project_id: str, repo_name: str, branch_name: str, storage_bucket: str = None, cooldown_period: int = 300):
+def setup_cloud_build_trigger(project_id: str, repo_name: str, branch_name: str, storage_bucket: str = None):
     """
-    Set up a Cloud Build trigger for continuous training with cooldown period and build notifications.
+    Set up a Cloud Build trigger for continuous training with Pub/Sub and Cloud Function for cooldown.
     The trigger can monitor both code changes in the repository and new data in a Cloud Storage bucket.
     
     :param project_id: GCP Project ID
     :param repo_name: Name of the GitHub repository
     :param branch_name: Branch to monitor for changes (e.g., 'main')
-    :param storage_bucket: Optional. Name of the Cloud Storage bucket to monitor for new data (for retraining triggers)
-    :param cooldown_period: Cooldown period in seconds between triggers (default: 300 seconds)
+    :param storage_bucket: Optional. Cloud Storage bucket to monitor for new data
     """
     client = cloudbuild_v1.CloudBuildClient()
-    
-    trigger = cloudbuild_v1.BuildTrigger()
-    trigger.name = f"{repo_name}-{branch_name}-trigger"
-    
-    # Monitor for new commits or changes in the GitHub repository
-    trigger.github = cloudbuild_v1.GitHubEventsConfig(
-        owner="your-github-username",
-        name=repo_name,
-        push=cloudbuild_v1.PushFilter(
-            branch=branch_name,
-            included_paths=["pipeline/**", "model/**", "configs/**", "deployment/vertex_ai/**", "src/**", "data/**", "kubeflow/**"],  # Only triggers when changes are made in relevant directories
-            ignored_paths=["README.md", "docs/**", "*.md"]  # Exempt README.md, docs, and markdown files changes from trigerring cloud build
-        )
-    )
-    trigger.filename = "cloudbuild.yaml"
-    
-    # Add cooldown period
-    trigger.build.options.machine_type = cloudbuild_v1.BuildOptions.MachineType.E2_HIGHCPU_8
-    trigger.build.options.substitution_option = cloudbuild_v1.BuildOptions.SubstitutionOption.ALLOW_LOOSE
-    trigger.build.options.dynamic_substitutions = True
-    
-    cooldown_duration = duration_pb2.Duration()
-    cooldown_duration.seconds = cooldown_period
-    trigger.build.options.polling_interval = cooldown_duration
 
+    # Create the Cloud Build trigger
+    trigger = cloudbuild_v1.BuildTrigger(
+        name=f"{repo_name}-{branch_name}-trigger",
+        github=cloudbuild_v1.GitHubEventsConfig(
+            owner="your-github-username",
+            name=repo_name,
+            push=cloudbuild_v1.PushFilter(
+                branch=branch_name,
+                included_paths=["pipeline/**", "model/**", "configs/**", "deployment/vertex_ai/**", "src/**", "data/**", "kubeflow/**"],
+                ignored_paths=["README.md", "docs/**", "*.md"]  # Exempt non-critical changes
+            )
+        ),
+        filename="cloudbuild.yaml"
+    )
+    
     # Optional: Monitor for new data ingestion in the Cloud Storage bucket
     if storage_bucket:
-
         trigger.pubsub_config = cloudbuild_v1.PubsubConfig(
             topic=f"projects/{project_id}/topics/{storage_bucket}-trigger",
             subscription=f"projects/{project_id}/subscriptions/{storage_bucket}-trigger-sub"
         )
 
-    # Set up build status notifications
-    trigger.build.options.logging = cloudbuild_v1.BuildOptions.LoggingMode.CLOUD_LOGGING_ONLY
-    trigger.build.options.requested_verify_option = cloudbuild_v1.BuildOptions.VerifyOption.VERIFIED
-
     # Create the Cloud Build trigger
-    operation = client.create_build_trigger(project_id=project_id, trigger=trigger)
-    result = operation.result()
+    trigger_response = client.create_build_trigger(parent=f"projects/{project_id}", trigger=trigger)
     
-    # Set up notifications for build status
+    print(f"Cloud Build trigger created: {trigger_response.name}")
+
+    # Set up build notifications
     notification_config = cloudbuild_v1.NotificationConfig(
         filter="build.status in (SUCCESS, FAILURE, INTERNAL_ERROR, TIMEOUT)",
         pubsub_topic=f"projects/{project_id}/topics/cloud-builds"
     )
-    client.update_build_trigger(project_id=project_id, trigger_id=result.id, trigger=trigger, update_mask={"paths": ["notification_config"]})
-    
-    print(f"Cloud Build trigger created: {result.name}")
+
+    # Update the trigger with notification config
+    trigger_response.notification_config = notification_config
+    client.update_build_trigger(
+        project_id=project_id,
+        trigger_id=trigger_response.id,
+        trigger=trigger_response
+    )
+
     print("Build status notifications set up for successful and failed builds.")
-    return result
+    return trigger_response
+
+def cloud_build_trigger(event, context):
+    """
+    Cloud Function to trigger a Cloud Build job with a cooldown period.
+    It handles the Pub/Sub event and ensures that builds are not triggered
+    more frequently than the specified cooldown period.
+    """
+    global LAST_TRIGGER_TIME
+    current_time = time.time()
+
+    # Decode the Pub/Sub message (if it's base64-encoded)
+    if 'data' in event:
+        data = base64.b64decode(event['data']).decode('utf-8')
+        print(f"Received message: {data}")
+
+    # Check if the cooldown period has passed
+    if current_time - LAST_TRIGGER_TIME < COOLDOWN_PERIOD:
+        print("Cooldown period not over. Skipping build trigger.")
+        return
+
+    # Trigger the Cloud Build job since the cooldown period has passed
+    trigger_cloud_build()
+
+    # Update the last trigger time
+    LAST_TRIGGER_TIME = current_time
+
+def trigger_cloud_build():
+    """
+    Function to trigger a Cloud Build job using the Cloud Build API.
+    """
+    client = cloudbuild_v1.CloudBuildClient()
+
+    project_id = os.environ.get('PROJECT_ID')
+    trigger_id = os.environ.get('TRIGGER_ID')
+    model_name = os.environ.get('MODEL_NAME')
+    endpoint_name = os.environ.get('ENDPOINT_NAME')
+
+    # Trigger the Cloud Build job using the build trigger ID
+    build = cloudbuild_v1.BuildTrigger(
+        project_id=project_id,
+        trigger_id=trigger_id
+    )
+
+    # Run the build
+    client.run_build_trigger(project_id=project_id, trigger_id=trigger_id, source=None)
+    print(f"Triggered Cloud Build job for trigger ID: {trigger_id}, Model: {model_name}, Endpoint: {endpoint_name}")
 
 
 def setup_cloud_run(project_id, service_name, image_url, region):
@@ -186,8 +233,14 @@ def setup_cloud_run(project_id, service_name, image_url, region):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Deploy to Vertex AI and set up CI/CD')
+    import argparse
+    from google.cloud import pubsub_v1
+    import os
+
+    # Parse arguments for Vertex AI and Cloud Build setup
+    parser = argparse.ArgumentParser(description='Deploy to Vertex AI, set up Cloud Build triggers, and configure CI/CD with Cloud Run and Pub/Sub for continuous training')
     parser.add_argument('--project_id', required=True, help='GCP Project ID')
+    parser.add_argument('--model_name', required=True, help='Name of the machine learning model')  # Model name argument added
     parser.add_argument('--model_path', required=True, help='Path to the model artifacts')
     parser.add_argument('--endpoint_name', required=True, help='Name for the Vertex AI endpoint')
     parser.add_argument('--repo_name', required=True, help='GitHub repository name')
@@ -196,17 +249,57 @@ if __name__ == '__main__':
     parser.add_argument('--image_url', required=True, help='Docker image URL for Cloud Run')
     parser.add_argument('--region', required=True, help='GCP region for deployment')
     parser.add_argument('--storage_bucket', required=True, help='Cloud Storage bucket to monitor for new data')
-    parser.add_argument('--cooldown_period', type=int, default=300, help='Cooldown period in seconds between triggers')
-    
+    parser.add_argument('--trigger_id', required=True, help='Cloud Build trigger ID for retraining jobs')
+    parser.add_argument('--cooldown_period', type=int, default=300, help='Cooldown period in seconds between Cloud Build jobs')
+    parser.add_argument('--notification_channel', required=True, help='Notification channel ID for build status notifications')
+    parser.add_argument('--canary_traffic_percent', type=int, default=10, help='Canary traffic split percentage')
+
     args = parser.parse_args()
-    
-    # Deploy to Vertex AI
-    endpoint = deploy_to_vertex_ai(args.project_id, args.model_path, args.endpoint_name)
-    
-    # Setup Cloud Build trigger
-    trigger = setup_cloud_build_trigger(args.project_id, args.repo_name, args.branch_name, args.storage_bucket, args.cooldown_period)
-    
-    # Setup Cloud Run service
-    service = setup_cloud_run(args.project_id, args.service_name, args.image_url, args.region)
-    
-    print("Deployment completed successfully!")
+
+    # Step 1: Deploy the model to Vertex AI
+    print(f"Deploying model '{args.model_name}' to Vertex AI...")
+    endpoint_name, model_name = deploy_to_vertex_ai(
+        project_id=args.project_id,
+        model_path=args.model_path,
+        endpoint_name=args.endpoint_name,
+        model_name=args.model_name,
+        canary_traffic_percent=args.canary_traffic_percent
+    )
+
+    # Step 2: Set up Cloud Build trigger
+    print("Setting up Cloud Build trigger for continuous training...")
+    trigger_response = setup_cloud_build_trigger(
+        project_id=args.project_id,
+        repo_name=args.repo_name,
+        branch_name=args.branch_name,
+        storage_bucket=args.storage_bucket
+    )
+
+    # Step 3: Deploy the Cloud Function for cooldown (Pub/Sub)
+    print("Setting up Pub/Sub topic and deploying Cloud Function for cooldown mechanism...")
+
+    # Ensure the Pub/Sub topic exists
+    pubsub_client = pubsub_v1.PublisherClient()
+    topic_path = pubsub_client.topic_path(args.project_id, 'cloud-build-trigger')
+    pubsub_client.create_topic(name=topic_path)
+
+    # Deploy Cloud Function for cooldown
+    os.system(f"gcloud functions deploy cloud_build_trigger --runtime python39 "
+            f"--trigger-topic cloud-build-trigger "
+            f"--set-env-vars PROJECT_ID={args.project_id},TRIGGER_ID={args.trigger_id} "
+            f"--memory=128MB --timeout=300s")
+
+    # Step 4: Set up Cloud Run service for deployment
+    print("Setting up Cloud Run service for deployment...")
+    service_response = setup_cloud_run(
+        project_id=args.project_id,
+        service_name=args.service_name,
+        image_url=args.image_url,
+        region=args.region
+    )
+
+    # Output results
+    print(f"Deployment to Vertex AI completed. Endpoint: {endpoint_name}, Model: {model_name}")
+    print(f"Cloud Build trigger '{trigger_response.name}' created.")
+    print(f"Cloud Run service '{service_response.name}' created.")
+    print("MLOps pipeline with Cloud Build, Pub/Sub, Cloud Function cooldown, and Cloud Run setup completed successfully.")
