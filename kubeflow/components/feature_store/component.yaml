@@ -1,0 +1,31 @@
+name: Feature Store Operations
+description: Create and populate the Vertex AI Feature Store with high-dimensional data
+
+inputs:
+  - {name: project_id, type: String}
+  - {name: region, type: String}
+  - {name: feature_store_id, type: String}
+  - {name: entity_type_id_prefix, type: String}
+  - {name: input_data, type: String}
+
+outputs:
+  - {name: feature_store_uri, type: String}
+
+implementation:
+  container:
+    image: gcr.io/your-project-id/feature-store-component:latest
+    command:
+    - python
+    - /app/feature_store.py
+    - --project_id
+    - {inputValue: project_id}
+    - --region
+    - {inputValue: region}
+    - --feature_store_id
+    - {inputValue: feature_store_id}
+    - --entity_type_id_prefix
+    - {inputValue: entity_type_id_prefix}
+    - --input_data
+    - {inputValue: input_data}
+    - --feature_store_uri
+    - {outputPath: feature_store_uri}
