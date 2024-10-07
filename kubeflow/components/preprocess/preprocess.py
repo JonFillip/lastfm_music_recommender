@@ -5,7 +5,7 @@ from kfp.v2.dsl import (
     Dataset,
 )
 from typing import NamedTuple
-from src.data_processing.data_preprocess import prepare_data
+from src.data_processing.data_prep import prepare_data
 from src.utils.logging_utils import setup_logger, log_error, log_step
 
 logger = setup_logger('kubeflow_preprocess')
