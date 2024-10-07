@@ -7,18 +7,18 @@ def setup_logger(name, log_level=logging.INFO):
     logger = logging.getLogger(name)
     logger.setLevel(log_level)
 
-    # Check if running on GCP
-    if os.getenv('KUBERNETES_SERVICE_HOST'):
-        # Use Google Cloud Logging
-        client = cloud_logging.Client()
-        handler = cloud_logging.handlers.CloudLoggingHandler(client)
-    else:
-        # Use local file logging
-        handler = logging.FileHandler(f"{name}.log")
-
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
+    if not logger.handlers:
+        # Check if running on GCP
+        if os.getenv('KUBERNETES_SERVICE_HOST'):
+            # Use Google Cloud Logging
+            client = cloud_logging.Client()
+            handler = cloud_logging.handlers.CloudLoggingHandler(client)
+        else:
+            # Use console logging
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            handler.setFormatter(formatter)
+        logger.addHandler(handler)
 
     return logger
 

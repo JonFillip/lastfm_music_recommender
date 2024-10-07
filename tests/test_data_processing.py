@@ -2,7 +2,7 @@ import unittest
 import pandas as pd
 import numpy as np
 from src.data_processing.data_ingestion import fetch_lastfm_data
-from src.data_processing.data_preprocess import (
+from src.data_processing.data_process import (
     load_data, robust_string_parser, preprocess_data, one_hot_encode,
     impute_data, prepare_data, main
 )

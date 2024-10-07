@@ -29,7 +29,7 @@ steps:
     args:
     - '-c'
     - |
-      python deployment/deploy_pipeline.py --platform vertex --project_id $PROJECT_ID --region ${_REGION} --output_file pipeline.yaml
+      python deployment/vertex_ai/vertex_deployment.py --platform vertex --project_id $PROJECT_ID --region ${_REGION} --output_file pipeline.yaml
     env:
       - 'MODEL_NAME=${_MODEL_NAME}'
       - 'ENDPOINT_NAME=${_ENDPOINT_NAME}'

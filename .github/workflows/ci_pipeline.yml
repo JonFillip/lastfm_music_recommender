@@ -3,112 +3,304 @@ name: CI/CD Pipeline
 on:
   push:
     branches: [ main ]
-    paths-ignore:
-      - '**/*.md'  # Exclude all markdown files (.md)
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'docker/**'
+      - 'cloudbuild.yaml'
+      - 'kubeflow/**'
+      - 'deployment/**'
   pull_request:
     branches: [ main ]
-    paths-ignore:
-      - '**/*.md'  # Exclude all markdown files (.md)
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'docker/**'
+      - 'cloudbuild.yaml'
+      - 'kubeflow/**'
+      - 'deployment/**'
+
+env:
+  IMAGE: music-recommender
+  REGION: us-central1
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GCS_BUCKET: ${{ secrets.GCS_BUCKET }}
+  GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+  GCP_SA_EMAIL: ${{ secrets.GCP_SA_EMAIL }}
+
+permissions:
+  contents: read
 
 jobs:
-  # Build job
-  build:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v2
-    
-    - name: Build Docker image
-      run: docker build -t music-recommender .
-
-  # Test job with matrix build
-  test:
-    needs: build
+  lint-and-test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [3.8, 3.9, 3.10]  # Testing across different Python versions
+        python-version: ['3.9', '3.10']
+    timeout-minutes: 15
     steps:
-    - uses: actions/checkout@v2
-    
-    - name: Set up Python
-      uses: actions/setup-python@v2
-      with:
-        python-version: ${{ matrix.python-version }}
+      - uses: actions/checkout@v3
 
-    # Caching pip dependencies
-    - name: Cache pip
-      uses: actions/cache@v2
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-    
-    - name: Run tests
-      run: python -m unittest discover tests
+      - name: Cache pip
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt', '**/setup.py') }}-${{ matrix.python-version }}
+          restore-keys: |
+            ${{ runner.os }}-pip-${{ matrix.python-version }}-
 
-    # Run linting with continue-on-error
-    - name: Run linting
-      run: pylint your_code/
-      continue-on-error: true
+      - name: Install dependencies
+        run: |
+          set -e
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install flake8 black isort pytest pytest-cov
 
-    - name: Run tests in Docker
-      run: docker run music-recommender python -m unittest discover tests
+      - name: Run linters
+        run: |
+          set -e
+          flake8 .
+          black --check .
+          isort --check-only .
 
-  # Deploy job
-  deploy:
-    needs: test
+      - name: Run tests
+        run: |
+          set -e
+          pytest tests/ --cov=src --cov-report=xml
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-results
+          path: ./reports/
+
+  build-and-push:
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_SA_EMAIL }}
+
+      - name: Verify GCP Authentication
+        run: gcloud auth list
+
+      - name: Validate repository structure
+        run: |
+          set -e
+          if [ ! -f "cloudbuild.yaml" ]; then
+            echo "cloudbuild.yaml not found, failing build."
+            exit 1
+          fi
+          if [ ! -f "kubeflow/pipeline.py" ]; then
+            echo "pipeline.py not found, failing build."
+            exit 1
+          fi
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: gcr.io/${{ env.PROJECT_ID }}/${{ env.IMAGE }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-cloud-run:
+    needs: build-and-push
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-
+    permissions:
+      contents: read
+      id-token: write
     steps:
-    - uses: actions/checkout@v2
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
 
-    # Authenticate with Google Cloud
-    - name: Set up Cloud SDK
-      uses: google-github-actions/setup-gcloud@v0.2.0
-      with:
-        project_id: ${{ secrets.GCP_PROJECT_ID }}
-        service_account_key: ${{ secrets.GCP_SA_KEY }}
-        export_default_credentials: true
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_SA_EMAIL }}
 
-    # Verify GCP Authentication
-    - name: Verify GCP Authentication
-      run: gcloud auth list
-    
-    # Validate the repository structure
-    - name: Validate repository structure
-      run: |
-        if [ ! -f "cloudbuild.yaml" ]; then
-          echo "cloudbuild.yaml not found, failing build."
-          exit 1
-        fi
-        if [ ! -f "deployment/deploy_pipeline.py" ]; then
-          echo "deploy_pipeline.py not found, failing build."
-          exit 1
-        fi
+      - name: Verify GCP Authentication
+        run: gcloud auth list
 
-    # Trigger Cloud Build
-    - name: Trigger Cloud Build
-      run: |
-        gcloud builds submit --config cloudbuild.yaml \
-          --substitutions=_REGION=us-central1
+      - name: Get the current Cloud Run revision
+        id: current_revision
+        run: |
+          set -e
+          # Capture the current revision name to enable rollback if deployment fails
+          revision=$(gcloud run services describe ${{ env.IMAGE }} \
+            --platform managed \
+            --region ${{ env.REGION }} \
+            --format="value(status.latestReadyRevisionName)")
+          echo "current_revision=$revision" >> $GITHUB_OUTPUT
 
-    # Run smoke tests in Docker before deploying to Vertex AI
-    - name: Smoke Test
-      run: docker run music-recommender python -m unittest discover tests
+      - name: Deploy to Cloud Run
+        env:
+          IMAGE_TAG: gcr.io/${{ env.PROJECT_ID }}/${{ env.IMAGE }}:${{ github.sha }}
+        run: |
+          set -e
+          gcloud run deploy ${{ env.IMAGE }} \
+            --image $IMAGE_TAG \
+            --region ${{ env.REGION }} \
+            --platform managed \
+            --allow-unauthenticated
 
-    # Deploy to Vertex AI with pinned versions of kfp and google-cloud-aiplatform
-    - name: Deploy to Vertex AI
-      run: |
-        pip install 'kfp==1.7.2' 'google-cloud-aiplatform==1.7.1'
-        python deployment/deploy_pipeline.py \
-          --platform vertex \
-          --project_id ${{ secrets.GCP_PROJECT_ID }} \
-          --region us-central1 \
-          --output_file pipeline.yaml
+      - name: Health check Cloud Run service
+        run: |
+          set -e
+          SERVICE_URL=$(gcloud run services describe ${{ env.IMAGE }} \
+            --platform managed \
+            --region ${{ env.REGION }} \
+            --format='value(status.url)')
+          if ! curl -fsSL ${SERVICE_URL}/health; then
+            echo "Deployment failed. Rolling back to previous revision..."
+            gcloud run services update-traffic ${{ env.IMAGE }} \
+              --platform managed \
+              --region ${{ env.REGION }} \
+              --to-revisions=${{ steps.current_revision.outputs.current_revision }}=100
+            exit 1
+          fi
+
+  deploy-vertex-ai:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_SA_EMAIL }}
+
+      - name: Verify GCP Authentication
+        run: gcloud auth list
+
+      - name: Trigger Cloud Build
+        run: |
+          set -e
+          gcloud builds submit --config cloudbuild.yaml \
+            --substitutions=_REGION=${{ env.REGION }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Kubeflow Pipelines SDK
+        run: |
+          set -e
+          python -m pip install --upgrade pip
+          pip install kfp==2.0.0 google-cloud-aiplatform==1.28.0
+
+      - name: Deploy to Vertex AI
+        run: |
+          set -e
+          python kubeflow/pipeline.py \
+            --project_id ${{ env.PROJECT_ID }} \
+            --region ${{ env.REGION }} \
+            --pipeline_root gs://${{ env.GCS_BUCKET }}/pipeline_root \
+            --output_file pipeline.json
+          python deployment/vertex_ai/vertex_deployment.py \
+            --project_id ${{ env.PROJECT_ID }} \
+            --region ${{ env.REGION }} \
+            --pipeline_spec pipeline.json \
+            --pipeline_root gs://${{ env.GCS_BUCKET }}/pipeline_root \
+            --model_name_file model_name.txt
+
+      - name: Upload model name
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: model-name
+          path: model_name.txt
+
+      - name: Check Vertex AI model deployment status
+        run: |
+          set -e
+          MODEL_NAME=$(cat model_name.txt)
+          MODEL_STATUS=$(gcloud ai models describe $MODEL_NAME --region ${{ env.REGION }} --format="value(state)")
+          if [[ "$MODEL_STATUS" != "DEPLOYED" ]]; then
+            echo "Model not deployed successfully, exiting."
+            exit 1
+          fi
+
+  final-health-check:
+    needs: [deploy-cloud-run, deploy-vertex-ai]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_SA_EMAIL }}
+
+      - name: Download model name
+        uses: actions/download-artifact@v3
+        with:
+          name: model-name
+          path: ./
+
+      - name: Final Health Checks
+        run: |
+          set -e
+          # Check Cloud Run
+          SERVICE_URL=$(gcloud run services describe ${{ env.IMAGE }} \
+            --platform managed \
+            --region ${{ env.REGION }} \
+            --format='value(status.url)')
+          CLOUD_RUN_STATUS=$(curl -s -o /dev/null -w "%{http_code}" $SERVICE_URL/health)
+          
+          # Check Vertex AI
+          MODEL_NAME=$(cat model_name.txt)
+          VERTEX_AI_STATUS=$(gcloud ai models describe $MODEL_NAME --region ${{ env.REGION }} --format="value(state)")
+          
+          if [[ "$CLOUD_RUN_STATUS" != "200" || "$VERTEX_AI_STATUS" != "DEPLOYED" ]]; then
+            echo "Final health check failed. Cloud Run status: $CLOUD_RUN_STATUS, Vertex AI status: $VERTEX_AI_STATUS"
+            exit 1
+          fi
+          
+          echo "All systems operational. Cloud Run status: $CLOUD_RUN_STATUS, Vertex AI status: $VERTEX_AI_STATUS"

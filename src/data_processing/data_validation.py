@@ -7,6 +7,7 @@ from src.utils.logging_utils import setup_logger, log_error, log_step
 import os
 import matplotlib.pyplot as plt
 from google.cloud import storage
+from google.cloud import bigquery
 from datetime import datetime
 
 logger = setup_logger('data_validation')
@@ -44,10 +45,21 @@ def load_statistics_from_gcs(bucket_name: str, model_name: str, data_type: str, 
     stats.ParseFromString(blob.download_as_string())
     return stats
 
-def generate_schema(data_path: str, bucket_name: str, model_name: str, version: str) -> tfdv.types.Schema:
+def load_data_from_bigquery(project_id: str, dataset_id: str, table_id: str) -> pd.DataFrame:
+    """
+    Load data from BigQuery table into a pandas DataFrame.
+    """
+    client = bigquery.Client(project=project_id)
+    query = f"""
+    SELECT *
+    FROM `{project_id}.{dataset_id}.{table_id}`
+    """
+    return client.query(query).to_dataframe()
+
+def generate_schema(project_id: str, dataset_id: str, table_id: str, bucket_name: str, model_name: str, version: str) -> tfdv.types.Schema:
     try:
         log_step(logger, 'Generating Schema', 'Data Validation')
-        df = pd.read_csv(data_path)
+        df = load_data_from_bigquery(project_id, dataset_id, table_id)
         schema = tfdv.infer_schema(df)
         save_schema_to_gcs(schema, bucket_name, model_name, version)
         return schema
@@ -55,10 +67,10 @@ def generate_schema(data_path: str, bucket_name: str, model_name: str, version: 
         log_error(logger, e, 'Schema Generation')
         raise
 
-def validate_data(data_path: str, schema: tfdv.types.Schema, bucket_name: str, model_name: str, data_type: str) -> Tuple[tfdv.types.DatasetFeatureStatisticsList, tfdv.types.Anomalies]:
+def validate_data(project_id: str, dataset_id: str, table_id: str, schema: tfdv.types.Schema, bucket_name: str, model_name: str, data_type: str) -> Tuple[tfdv.types.DatasetFeatureStatisticsList, tfdv.types.Anomalies]:
     try:
         log_step(logger, 'Validating Data', 'Data Validation')
-        df = pd.read_csv(data_path)
+        df = load_data_from_bigquery(project_id, dataset_id, table_id)
         stats = tfdv.generate_statistics_from_dataframe(df)
         save_statistics_to_gcs(stats, bucket_name, model_name, data_type)
         anomalies = tfdv.validate_statistics(stats, schema)
@@ -161,7 +173,9 @@ def compare_schemas(baseline_schema: tfdv.types.Schema, current_schema: tfdv.typ
         return False  # In case of an error, return False to indicate no schema drift detected
 
 
-def main(train_data_path: str, serving_data_path: str, bucket_name: str, model_name: str):
+def main(project_id: str, train_dataset_id: str, train_table_id: str, 
+            serving_dataset_id: str, serving_table_id: str, 
+            bucket_name: str, model_name: str):
     try:
         config = load_config()
         schema_version = config['data_validation']['schema_version']
@@ -172,14 +186,14 @@ def main(train_data_path: str, serving_data_path: str, bucket_name: str, model_n
             schema = load_schema_from_gcs(bucket_name, model_name, schema_version)
             logger.info(f"Loaded existing schema version {schema_version} from GCS")
         except:
-            schema = generate_schema(train_data_path, bucket_name, model_name, schema_version)
+            schema = generate_schema(project_id, train_dataset_id, train_table_id, bucket_name, model_name, schema_version)
         
         # Validate training data
-        train_stats, train_anomalies = validate_data(train_data_path, schema, bucket_name, model_name, 'train')
+        train_stats, train_anomalies = validate_data(project_id, train_dataset_id, train_table_id, schema, bucket_name, model_name, 'train')
         visualize_statistics(train_stats, train_anomalies)
         
         # Validate serving data
-        serving_stats, serving_anomalies = validate_data(serving_data_path, schema, bucket_name, model_name, 'serving')
+        serving_stats, serving_anomalies = validate_data(project_id, serving_dataset_id, serving_table_id, schema, bucket_name, model_name, 'serving')
         visualize_statistics(serving_stats, serving_anomalies)
         
         # Compare statistics and detect drift
@@ -193,7 +207,14 @@ def main(train_data_path: str, serving_data_path: str, bucket_name: str, model_n
 
 if __name__ == '__main__':
     config = load_config()
+    project_id = config['project']['id']
     bucket_name = config['storage']['bucket_name']
     model_name = config['model']['name']
-    # Replace arg 1 and 2 with Kubeflow pipeline inputs
-    main('data/raw/train_data.csv', 'data/raw/serving_data.csv', bucket_name, model_name)
+    train_dataset_id = config['bigquery']['train_dataset_id']
+    train_table_id = config['bigquery']['train_table_id']
+    serving_dataset_id = config['bigquery']['serving_dataset_id']
+    serving_table_id = config['bigquery']['serving_table_id']
+    
+    main(project_id, train_dataset_id, train_table_id, 
+            serving_dataset_id, serving_table_id, 
+            bucket_name, model_name)

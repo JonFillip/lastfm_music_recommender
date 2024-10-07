@@ -4,15 +4,14 @@ import pandas as pd
 import tempfile
 import os
 import json
-from src.data_processing.data_preprocess import preprocess_data, prepare_data
+from src.data_processing.data_process import preprocess_data
+from src.data_processing.data_prep import prepare_data
 from src.data_processing.data_validation import (
     generate_schema, validate_data, compare_statistics, detect_data_drift, save_schema_to_gcs
 )
 from src.feature_engineering.feat_engineering import (
-    engineer_basic_features, engineer_additional_features, refine_features,
-    add_tag_popularity, add_similar_tracks_avg_playcount, add_interaction_features,
-    add_target_encoding, refine_features_further, vectorize_all_text_features,
-    create_preprocessing_pipeline
+    engineer_basic_features, engineer_additional_features,
+    add_tag_popularity, add_similar_tracks_avg_playcount, feature_engineering_pipeline
 )
 from src.algorithms.content_based import ContentBasedRecommender
 from src.evaluation.model_evaluation import evaluate_model
@@ -107,14 +106,6 @@ class TestPipeline(unittest.TestCase):
 
         # Step 3: Feature Engineering
         df = engineer_basic_features(preprocessed_data)
-        df = engineer_additional_features(df)
-        df = refine_features(df)
-        df = add_tag_popularity(df)
-        df = add_similar_tracks_avg_playcount(df)
-        df = add_interaction_features(df)
-        df = add_target_encoding(df)
-        df = refine_features_further(df)
-        df, vectorizers = vectorize_all_text_features(df)
 
         # Create preprocessing pipeline
         pipeline = create_preprocessing_pipeline(df)
@@ -214,7 +205,7 @@ class TestPipeline(unittest.TestCase):
         preprocessed_data = preprocess_data(pd.read_csv(self.train_data_path))
         
         # Feature engineering steps
-        df = engineer_basic_features(preprocessed_data)
+        df = feature_engineering_pipeline(preprocessed_data)
         df = engineer_additional_features(df)
         df = refine_features(df)
         df = add_tag_popularity(df)

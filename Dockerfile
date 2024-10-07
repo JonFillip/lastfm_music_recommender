@@ -1,12 +1,24 @@
-FROM python:3.9-slim
+# Use Python 3.10 slim base image
+FROM python:3.10-slim
 
 # Set working directory
 WORKDIR /app
 
-# Copy requirements file
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    libffi-dev \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements.txt
 COPY requirements.txt .
 
-# Install dependencies
+# Upgrade pip
+RUN pip install --upgrade pip
+
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the entire project
@@ -15,10 +27,7 @@ COPY . .
 # Set environment variables
 ENV PYTHONPATH=/app
 
-# Install additional dependencies for Kubeflow and Vertex AI
-RUN pip install --no-cache-dir kfp google-cloud-aiplatform
-
-# Make sure all scripts are executable
+# Make scripts executable
 RUN chmod +x src/*.py kubeflow/components/*/*.py
 
 # Run tests by default
